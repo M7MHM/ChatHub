@@ -1,0 +1,6 @@
+@ChatHub.WebAPI_HostAddress = http://localhost:5285
+
+GET {{ChatHub.WebAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

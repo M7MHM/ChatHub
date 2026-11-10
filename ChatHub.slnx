@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ChatHub.Application/ChatHub.Application.csproj" />
+  <Project Path="ChatHub.Domain/ChatHub.Domain.csproj" />
+  <Project Path="ChatHub.Infrastructure/ChatHub.Infrastructure.csproj" />
+  <Project Path="ChatHub.WebAPI/ChatHub.WebAPI.csproj" />
+</Solution>
