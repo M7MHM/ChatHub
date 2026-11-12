@@ -14,7 +14,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<Message> Messages => Set<Message>();
-    public DbSet<MessageReceipt> MessageReceipts => Set<MessageReceipt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

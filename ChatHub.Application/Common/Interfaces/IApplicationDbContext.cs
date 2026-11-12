@@ -10,7 +10,5 @@ public interface IApplicationDbContext
     DbSet<Conversation> Conversations { get; }
     DbSet<ConversationMember> ConversationMembers { get; }
     DbSet<Message> Messages { get; }
-    DbSet<MessageReceipt> MessageReceipts { get; }
-
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

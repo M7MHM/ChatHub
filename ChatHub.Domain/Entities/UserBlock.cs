@@ -3,7 +3,7 @@ using ChatHub.Domain.Exceptions;
 
 namespace ChatHub.Domain.Entities;
 
-public class UserBlock : BaseAuditableEntity
+public class UserBlock : BaseEntity
 {
     private UserBlock() { }
 
@@ -21,18 +21,5 @@ public class UserBlock : BaseAuditableEntity
             throw new DomainRuleViolationException("A user cannot block themselves.");
 
         return new UserBlock { BlockerId = blockerId, BlockedId = blockedId };
-    }
-    public void Unblock()
-    {
-        if (IsDeleted) return;
-        IsDeleted = true;
-        UpdatedAtUtc = DateTime.UtcNow;
-    }
-    public void Reblock()
-    {
-        if (!IsDeleted) return;
-        IsDeleted = false;
-        BlockedAtUtc = DateTime.UtcNow;
-        UpdatedAtUtc = DateTime.UtcNow;
     }
 }

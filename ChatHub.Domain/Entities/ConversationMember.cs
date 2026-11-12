@@ -20,7 +20,9 @@ public class ConversationMember : BaseAuditableEntity
     public DateTime? ClearedAtUtc { get; private set; }
     public bool IsMuted { get; private set; } = false;
     public Guid? LastReadMessageId { get; private set; }
-    public DateTime? LastReadAtUtc { get; private set; }
+    public DateTime? LastReadMessageAtUtc { get; private set; }
+    public Guid? LastDeliveredMessageId { get; private set; }
+    public DateTime? LastDeliveredMessageAtUtc { get; private set; }
 
     public static ConversationMember Create(Guid conversationId, Guid userId, GroupRole role = GroupRole.Member)
     {
@@ -38,7 +40,6 @@ public class ConversationMember : BaseAuditableEntity
         if (!Enum.IsDefined(role))
             throw new DomainRuleViolationException("Invalid group role.");
         Role = role;
-        Touch();
     }
 
     public void Leave()
@@ -70,45 +71,61 @@ public class ConversationMember : BaseAuditableEntity
         JoinedAtUtc = DateTime.UtcNow;
         LeftAtUtc = null;
         KickedByUserId = null;
-        Touch();
     }
 
     public void ClearChat()
     {
         EnsureActive();
         ClearedAtUtc = DateTime.UtcNow;
-        Touch();
     }
 
     public void Mute()
     {
         EnsureActive();
         IsMuted = true;
-        Touch();
     }
 
     public void Unmute()
     {
         EnsureActive();
         IsMuted = false;
-        Touch();
     }
 
-    public void MarkAsRead(Guid messageId)
+    public void MarkAsDelivered(Message message)
     {
+        ValidateMessage(message);
+        AdvanceDelivered(message);
+    }
+
+    public void MarkAsRead(Message message)
+    {
+        ValidateMessage(message);
+        AdvanceDelivered(message);
+
+        if (LastReadMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
+        LastReadMessageId = message.Id;
+        LastReadMessageAtUtc = message.CreatedAtUtc;
+    }
+
+    private void AdvanceDelivered(Message message)
+    {
+        if (LastDeliveredMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
+        LastDeliveredMessageId = message.Id;
+        LastDeliveredMessageAtUtc = message.CreatedAtUtc;
+    }
+
+    private void ValidateMessage(Message message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
         EnsureActive();
-        if (messageId == Guid.Empty)
-            throw new DomainRuleViolationException("Message id is required.");
-        LastReadMessageId = messageId;
-        LastReadAtUtc = DateTime.UtcNow;
-        Touch();
+        if (message.ConversationId != ConversationId)
+            throw new DomainRuleViolationException("Message does not belong to this conversation.");
     }
 
     private void Deactivate()
     {
         IsActive = false;
         LeftAtUtc = DateTime.UtcNow;
-        Touch();
     }
 
     private void EnsureActive()
@@ -116,5 +133,4 @@ public class ConversationMember : BaseAuditableEntity
         if (!IsActive) throw new DomainRuleViolationException("Member is not active in this conversation.");
     }
 
-    private void Touch() => UpdatedAtUtc = DateTime.UtcNow;
 }

@@ -15,11 +15,11 @@ public class Conversation : BaseAuditableEntity
     public ConversationType Type { get; private set; }
     public string? Title { get; private set; }
     public string? ImageUrl { get; private set; }
+    public string? DirectKey { get; private set; }
     public Guid? LastMessageId { get; private set; }
     public DateTime? LastMessageAtUtc { get; private set; }
 
     public ICollection<ConversationMember> Members { get; private set; } = new List<ConversationMember>();
-    public ICollection<Message> Messages { get; private set; } = new List<Message>();
 
     public static Conversation CreateDirect(Guid firstUserId, Guid secondUserId)
     {
@@ -28,10 +28,20 @@ public class Conversation : BaseAuditableEntity
         if (firstUserId == secondUserId)
             throw new DomainRuleViolationException("A direct conversation needs two different users.");
 
-        var conversation = new Conversation { Type = ConversationType.Direct };
+        var conversation = new Conversation
+        {
+            Type = ConversationType.Direct,
+            DirectKey = BuildDirectKey(firstUserId, secondUserId)
+        };
         conversation.Members.Add(ConversationMember.Create(conversation.Id, firstUserId));
         conversation.Members.Add(ConversationMember.Create(conversation.Id, secondUserId));
         return conversation;
+    }
+
+    public static string BuildDirectKey(Guid a, Guid b)
+    {
+        var (min, max) = a.CompareTo(b) <= 0 ? (a, b) : (b, a);
+        return $"{min:N}_{max:N}";
     }
 
     public static Conversation CreateGroup(Guid ownerId, string title, string? imageUrl = null)
@@ -55,7 +65,6 @@ public class Conversation : BaseAuditableEntity
         RequireRole(actorId, GroupRole.Admin);
         Title = ValidateTitle(title);
         ImageUrl = NormalizeUrl(imageUrl);
-        Touch();
     }
 
     public ConversationMember AddMember(Guid actorId, Guid userId)
@@ -70,13 +79,11 @@ public class Conversation : BaseAuditableEntity
         if (existing is not null)
         {
             existing.Rejoin();
-            Touch();
             return existing;
         }
 
         var member = ConversationMember.Create(Id, userId);
         Members.Add(member);
-        Touch();
         return member;
     }
 
@@ -92,7 +99,6 @@ public class Conversation : BaseAuditableEntity
 
         target.Kick(actorId);
         AddDomainEvent(new MemberKickedEvent(Id, targetUserId, actorId));
-        Touch();
     }
 
     public void LeaveMember(Guid userId)
@@ -105,7 +111,6 @@ public class Conversation : BaseAuditableEntity
             throw new DomainRuleViolationException("The owner must transfer ownership before leaving.");
 
         member.Leave();
-        Touch();
     }
 
     public void ChangeMemberRole(Guid actorId, Guid targetUserId, GroupRole newRole)
@@ -121,7 +126,6 @@ public class Conversation : BaseAuditableEntity
             throw new DomainRuleViolationException("The role of the owner cannot be changed.");
 
         target.ChangeRole(newRole);
-        Touch();
     }
 
     public void TransferOwnership(Guid currentOwnerId, Guid newOwnerId)
@@ -135,20 +139,19 @@ public class Conversation : BaseAuditableEntity
 
         owner.ChangeRole(GroupRole.Admin);
         newOwner.ChangeRole(GroupRole.Owner);
-        Touch();
     }
 
     public Message SendMessage(Guid senderId, MessageType type, string? content,
-        Attachment? attachment = null, Guid? parentMessageId = null)
+        Attachment? attachment = null, Message? replyTo = null)
     {
         if (type != MessageType.System && FindActiveMember(senderId) is null)
             throw new DomainRuleViolationException("Only active members can send messages.");
+        if (replyTo is not null && replyTo.ConversationId != Id)
+            throw new DomainRuleViolationException("Cannot reply to a message from another conversation.");
 
-        var message = Message.Create(Id, senderId, type, content, attachment, parentMessageId);
-        Messages.Add(message);
+        var message = Message.Create(Id, senderId, type, content, attachment, replyTo?.Id);
         LastMessageId = message.Id;
         LastMessageAtUtc = message.CreatedAtUtc;
-        Touch();
         return message;
     }
 
@@ -184,5 +187,4 @@ public class Conversation : BaseAuditableEntity
 
     private static string? NormalizeUrl(string? url) => string.IsNullOrWhiteSpace(url) ? null : url.Trim();
 
-    private void Touch() => UpdatedAtUtc = DateTime.UtcNow;
 }

@@ -1,4 +1,5 @@
 using ChatHub.Domain.Common;
+using ChatHub.Domain.Exceptions;
 
 namespace ChatHub.Domain.ValueObjects;
 
@@ -19,10 +20,14 @@ public sealed class Attachment : ValueObject
 
     public static Attachment Create(string fileUrl, string fileName, string contentType, long fileSizeBytes)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileUrl);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fileSizeBytes);
+        if (string.IsNullOrWhiteSpace(fileUrl))
+            throw new DomainRuleViolationException("Attachment file url is required.");
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new DomainRuleViolationException("Attachment file name is required.");
+        if (string.IsNullOrWhiteSpace(contentType))
+            throw new DomainRuleViolationException("Attachment content type is required.");
+        if (fileSizeBytes <= 0)
+            throw new DomainRuleViolationException("Attachment file size must be greater than zero.");
 
         return new Attachment(fileUrl, fileName, contentType, fileSizeBytes);
     }

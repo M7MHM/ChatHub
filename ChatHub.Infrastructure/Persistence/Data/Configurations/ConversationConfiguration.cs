@@ -25,11 +25,6 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasMany(c => c.Messages)
-            .WithOne(m => m.Conversation)
-            .HasForeignKey(m => m.ConversationId)
-            .OnDelete(DeleteBehavior.Cascade);
-
         builder.HasQueryFilter(c => !c.IsDeleted);
     }
 }

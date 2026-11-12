@@ -1,4 +1,5 @@
 using ChatHub.Domain.Common;
+using ChatHub.Domain.Exceptions;
 
 namespace ChatHub.Domain.ValueObjects;
 
@@ -23,15 +24,16 @@ public sealed class PhoneNumber : ValueObject
     /// <summary>Creates a phone number from E.164 input (e.g. "+201001234567"). Spaces, dashes and parentheses are ignored.</summary>
     public static PhoneNumber Create(string phone)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(phone);
+        if (string.IsNullOrWhiteSpace(phone))
+            throw new DomainRuleViolationException("Phone number is required.");
 
         var cleaned = new string(phone.Where(c => c is not (' ' or '-' or '(' or ')')).ToArray());
         if (!cleaned.StartsWith('+'))
-            throw new ArgumentException("Phone number must start with '+' and a country code.", nameof(phone));
+            throw new DomainRuleViolationException("Phone number must start with '+' and a country code.");
 
         var digits = cleaned[1..];
         if (digits.Length is < 8 or > 15 || !digits.All(char.IsAsciiDigit) || digits[0] == '0')
-            throw new ArgumentException("Phone number must contain 8 to 15 digits in E.164 format.", nameof(phone));
+            throw new DomainRuleViolationException("Phone number must contain 8 to 15 digits in E.164 format.");
 
         var codeLength = digits[0] is '1' or '7' ? 1 : ThreeDigitPrefixes.Contains(digits[..2]) ? 3 : 2;
         return new PhoneNumber(digits[..codeLength], digits[codeLength..]);

@@ -21,7 +21,6 @@ public class UserProfile : BaseAuditableEntity
     public DateTime? LastSeenUtc { get; private set; }
 
     public ICollection<ConversationMember> Memberships { get; private set; } = new List<ConversationMember>();
-    public ICollection<Message> SentMessages { get; private set; } = new List<Message>();
     public ICollection<UserBlock> BlockedUsers { get; private set; } = new List<UserBlock>();
     public ICollection<UserBlock> BlockedByUsers { get; private set; } = new List<UserBlock>();
 
@@ -46,7 +45,6 @@ public class UserProfile : BaseAuditableEntity
         DisplayName = ValidateDisplayName(displayName);
         AvatarUrl = string.IsNullOrWhiteSpace(avatarUrl) ? null : avatarUrl.Trim();
         Bio = string.IsNullOrWhiteSpace(bio) ? null : bio.Trim();
-        Touch();
     }
     public void ChangePhoneNumber(PhoneNumber? phoneNumber)
     {
@@ -54,7 +52,6 @@ public class UserProfile : BaseAuditableEntity
         if (phoneNumber is null && Email is null)
             throw new DomainRuleViolationException("Cannot remove the only contact method.");
         PhoneNumber = phoneNumber;
-        Touch();
     }
 
     public void ChangeEmail(Email? email)
@@ -63,7 +60,6 @@ public class UserProfile : BaseAuditableEntity
         if (email is null && PhoneNumber is null)
             throw new DomainRuleViolationException("Cannot remove the only contact method.");
         Email = email;
-        Touch();
     }
 
     public void GoOnline()
@@ -86,7 +82,6 @@ public class UserProfile : BaseAuditableEntity
     {
         GoOffline();
         IsDeleted = true;
-        Touch();
     }
 
     private static string ValidateDisplayName(string displayName)
@@ -104,5 +99,4 @@ public class UserProfile : BaseAuditableEntity
         if (IsDeleted) throw new DomainRuleViolationException("User profile is deleted.");
     }
 
-    private void Touch() => UpdatedAtUtc = DateTime.UtcNow;
 }

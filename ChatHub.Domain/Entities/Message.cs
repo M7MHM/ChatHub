@@ -24,8 +24,6 @@ public class Message : BaseAuditableEntity
     public bool IsEdited { get; private set; } = false;
     public DateTime? EditedAtUtc { get; private set; }
 
-    public ICollection<MessageReceipt> Receipts { get; private set; } = new List<MessageReceipt>();
-
     public static Message Create(Guid conversationId, Guid senderId, MessageType type, string? content,
         Attachment? attachment = null, Guid? parentMessageId = null)
     {
@@ -70,8 +68,6 @@ public class Message : BaseAuditableEntity
         Content = trimmed;
         IsEdited = true;
         EditedAtUtc = DateTime.UtcNow;
-        UpdatedAtUtc = EditedAtUtc;
-        UpdatedById = editorId;
     }
 
     public void Delete(Guid deletedById)
@@ -81,26 +77,8 @@ public class Message : BaseAuditableEntity
             throw new DomainRuleViolationException("Only the sender can delete a message.");
 
         IsDeleted = true;
-        UpdatedAtUtc = DateTime.UtcNow;
-        UpdatedById = deletedById;
-    }
-
-    public MessageReceipt UpdateReceipt(Guid userId, ReceiptStatus status)
-    {
-        if (userId == SenderId)
-            throw new DomainRuleViolationException("The sender cannot have a receipt for their own message.");
-
-        var receipt = Receipts.FirstOrDefault(r => r.UserId == userId);
-        if (receipt is null)
-        {
-            receipt = MessageReceipt.Create(Id, userId, status);
-            Receipts.Add(receipt);
-        }
-        else
-        {
-            receipt.Advance(status);
-        }
-        return receipt;
+        Content = null;
+        Attachment = null;
     }
 
     private void EnsureNotDeleted()

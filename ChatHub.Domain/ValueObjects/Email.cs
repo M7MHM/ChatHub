@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using ChatHub.Domain.Common;
+using ChatHub.Domain.Exceptions;
 
 namespace ChatHub.Domain.ValueObjects;
 
@@ -11,12 +12,13 @@ public sealed class Email : ValueObject
 
     public static Email Create(string email)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        if (string.IsNullOrWhiteSpace(email))
+            throw new DomainRuleViolationException("Email is required.");
 
         var normalized = email.Trim().ToLowerInvariant();
         if (normalized.Length > 254 || !MailAddress.TryCreate(normalized, out var parsed) ||
             parsed.Address != normalized || !parsed.Host.Contains('.'))
-            throw new ArgumentException("Invalid email format.", nameof(email));
+            throw new DomainRuleViolationException("Invalid email format.");
 
         return new Email(normalized);
     }
