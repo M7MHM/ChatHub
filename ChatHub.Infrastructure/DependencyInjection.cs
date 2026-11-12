@@ -3,6 +3,7 @@ using ChatHub.Application.Common.Interfaces;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Infrastructure.RealTime;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<IIdentityService, IdentityService>();
 
         services.AddSignalR();
+        services.AddSingleton<IUserIdProvider, SubClaimUserIdProvider>();
         services.AddSingleton<UserConnectionTracker>();
         services.AddScoped<ISignalRService, SignalRService>();
 

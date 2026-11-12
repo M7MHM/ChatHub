@@ -1,27 +1,37 @@
-using System.Security.Claims;
+using ChatHub.Application.Common.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChatHub.Infrastructure.RealTime.Hubs;
 
 [Authorize]
-public class ChatHub(UserConnectionTracker tracker) : Hub
+public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : Hub
 {
-    public override Task OnConnectedAsync()
+    public override async Task OnConnectedAsync()
     {
-        if (TryGetUserId(out var userId)) tracker.Add(userId, Context.ConnectionId);
-        return base.OnConnectedAsync();
+        if (Guid.TryParse(Context.UserIdentifier, out var userId))
+        {
+            tracker.Add(userId, Context.ConnectionId);
+
+            var conversationIds = await db.ConversationMembers
+                .AsNoTracking()
+                .Where(m => m.UserId == userId && m.IsActive && !m.Conversation.IsDeleted)
+                .Select(m => m.ConversationId)
+                .ToListAsync(Context.ConnectionAborted);
+
+            foreach (var conversationId in conversationIds)
+                await Groups.AddToGroupAsync(Context.ConnectionId, ConversationGroups.Name(conversationId), Context.ConnectionAborted);
+        }
+
+        await base.OnConnectedAsync();
     }
 
     public override Task OnDisconnectedAsync(Exception? exception)
     {
-        if (TryGetUserId(out var userId)) tracker.Remove(userId, Context.ConnectionId);
-        return base.OnDisconnectedAsync(exception);
-    }
+        if (Guid.TryParse(Context.UserIdentifier, out var userId))
+            tracker.Remove(userId, Context.ConnectionId);
 
-    private bool TryGetUserId(out Guid userId)
-    {
-        var value = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier) ?? Context.User?.FindFirstValue("sub");
-        return Guid.TryParse(value, out userId);
+        return base.OnDisconnectedAsync(exception);
     }
 }
