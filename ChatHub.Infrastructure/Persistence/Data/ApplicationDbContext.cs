@@ -1,13 +1,17 @@
 using System.Reflection;
 using ChatHub.Application.Common.Interfaces;
+using ChatHub.Application.Common.Models;
 using ChatHub.Domain.Common;
 using ChatHub.Domain.Entities;
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatHub.Infrastructure.Persistence.Data;
 
-public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentUserService currentUser)
-    : DbContext(options), IApplicationDbContext
+public class ApplicationDbContext(
+    DbContextOptions<ApplicationDbContext> options,
+    ICurrentUserService currentUser,
+    IPublisher publisher) : DbContext(options), IApplicationDbContext
 {
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
@@ -21,10 +25,34 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         base.OnModelCreating(modelBuilder);
     }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ApplyAuditInformation();
-        return base.SaveChangesAsync(cancellationToken);
+        var domainEvents = CollectDomainEvents();
+
+        var result = await base.SaveChangesAsync(cancellationToken);
+
+        // Events are published only after a successful save.
+        foreach (var domainEvent in domainEvents)
+        {
+            var notificationType = typeof(DomainEventNotification<>).MakeGenericType(domainEvent.GetType());
+            var notification = (INotification)Activator.CreateInstance(notificationType, domainEvent)!;
+            await publisher.Publish(notification, cancellationToken);
+        }
+
+        return result;
+    }
+
+    private List<IDomainEvent> CollectDomainEvents()
+    {
+        var events = new List<IDomainEvent>();
+        foreach (var entity in ChangeTracker.Entries<BaseEntity>().Select(e => e.Entity))
+        {
+            if (entity.DomainEvents.Count == 0) continue;
+            events.AddRange(entity.DomainEvents);
+            entity.ClearDomainEvents();
+        }
+        return events;
     }
 
     private void ApplyAuditInformation()
@@ -37,13 +65,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             switch (entry.State)
             {
                 case EntityState.Added:
-                    entry.Entity.CreatedAtUtc = now;
-                    entry.Entity.CreatedById ??= userId;
+                    entry.Property(x => x.CreatedAtUtc).CurrentValue = now;
+                    var createdBy = entry.Property(x => x.CreatedById);
+                    createdBy.CurrentValue ??= userId;
                     break;
 
                 case EntityState.Modified:
-                    entry.Entity.UpdatedAtUtc = now;
-                    entry.Entity.UpdatedById = userId ?? entry.Entity.UpdatedById;
+                    entry.Property(x => x.UpdatedAtUtc).CurrentValue = now;
+                    var updatedBy = entry.Property(x => x.UpdatedById);
+                    updatedBy.CurrentValue = userId ?? updatedBy.CurrentValue;
                     break;
             }
         }

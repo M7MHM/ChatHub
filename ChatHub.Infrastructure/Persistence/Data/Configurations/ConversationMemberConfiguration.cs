@@ -23,5 +23,10 @@ public class ConversationMemberConfiguration : IEntityTypeConfiguration<Conversa
 
         builder.HasIndex(m => new { m.ConversationId, m.UserId }).IsUnique();
         builder.HasIndex(m => m.UserId);
+
+        builder.Property(m => m.LastReadMessageId);
+        builder.Property(m => m.LastReadMessageAtUtc);
+        builder.Property(m => m.LastDeliveredMessageId);
+        builder.Property(m => m.LastDeliveredMessageAtUtc);
     }
 }

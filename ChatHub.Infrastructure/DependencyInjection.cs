@@ -1,3 +1,4 @@
+using System.Text;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Persistence.Data;
@@ -21,7 +22,13 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
 
-        services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.AddOptions<JwtSettings>()
+            .Bind(configuration.GetSection(JwtSettings.SectionName))
+            .Validate(s => Encoding.UTF8.GetByteCount(s.Secret) >= 32
+                           && !string.IsNullOrWhiteSpace(s.Issuer)
+                           && !string.IsNullOrWhiteSpace(s.Audience),
+                "Jwt settings require a Secret of at least 32 bytes, an Issuer and an Audience.")
+            .ValidateOnStart();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IIdentityService, IdentityService>();

@@ -28,9 +28,8 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.Property(u => u.AvatarUrl).HasMaxLength(2048);
         builder.Property(u => u.Bio).HasMaxLength(UserProfile.MaxBioLength);
 
-        builder.HasIndex(u => u.PhoneNumber).IsUnique();
-        builder.HasIndex(u => u.Email).IsUnique();
+        builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
+        builder.HasIndex(u => u.Email).IsUnique().HasFilter("\"IsDeleted\" = false");
 
-        builder.HasQueryFilter(u => !u.IsDeleted);
     }
 }

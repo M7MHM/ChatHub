@@ -18,6 +18,9 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.Title).HasMaxLength(Conversation.MaxTitleLength);
         builder.Property(c => c.ImageUrl).HasMaxLength(2048);
 
+        builder.Property(c => c.DirectKey).HasMaxLength(65);
+        builder.HasIndex(c => c.DirectKey).IsUnique().HasFilter("\"DirectKey\" IS NOT NULL");
+
         builder.HasIndex(c => c.LastMessageAtUtc);
 
         builder.HasMany(c => c.Members)
@@ -25,6 +28,5 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasQueryFilter(c => !c.IsDeleted);
     }
 }

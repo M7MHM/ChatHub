@@ -1,10 +1,21 @@
 namespace ChatHub.Application.Common.Models;
 
-public sealed record Error(string Code, string Description)
+public sealed record Error(string Code, string Description, ErrorType Type = ErrorType.Failure)
 {
     public static readonly Error None = new(string.Empty, string.Empty);
+
+    public static Error Failure(string code, string description) => new(code, description, ErrorType.Failure);
+    public static Error Validation(string code, string description) => new(code, description, ErrorType.Validation);
+    public static Error NotFound(string code, string description) => new(code, description, ErrorType.NotFound);
+    public static Error Conflict(string code, string description) => new(code, description, ErrorType.Conflict);
+    public static Error Forbidden(string code, string description) => new(code, description, ErrorType.Forbidden);
 }
 
+/// <summary>
+/// Error strategy: expected failures (not found, conflict, forbidden, business validation) are returned as
+/// a failed <see cref="Result"/>. Broken invariants throw <c>DomainRuleViolationException</c>, and malformed
+/// requests throw <c>ValidationException</c> from the validation pipeline behavior.
+/// </summary>
 public class Result
 {
     protected Result(bool isSuccess, Error error)

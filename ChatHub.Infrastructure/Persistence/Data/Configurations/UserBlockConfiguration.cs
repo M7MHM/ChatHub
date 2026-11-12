@@ -26,6 +26,5 @@ public class UserBlockConfiguration : IEntityTypeConfiguration<UserBlock>
 
         builder.HasIndex(b => new { b.BlockerId, b.BlockedId }).IsUnique();
 
-        builder.HasQueryFilter(b => !b.IsDeleted);
     }
 }
