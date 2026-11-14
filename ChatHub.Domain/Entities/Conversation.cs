@@ -35,6 +35,7 @@ public class Conversation : BaseAuditableEntity
         };
         conversation.Members.Add(ConversationMember.Create(conversation.Id, firstUserId));
         conversation.Members.Add(ConversationMember.Create(conversation.Id, secondUserId));
+        conversation.RaiseCreated();
         return conversation;
     }
 
@@ -56,6 +57,7 @@ public class Conversation : BaseAuditableEntity
             ImageUrl = NormalizeUrl(imageUrl)
         };
         conversation.Members.Add(ConversationMember.Create(conversation.Id, ownerId, GroupRole.Owner));
+        conversation.RaiseCreated();
         return conversation;
     }
 
@@ -63,8 +65,14 @@ public class Conversation : BaseAuditableEntity
     {
         EnsureGroup();
         RequireRole(actorId, GroupRole.Admin);
-        Title = ValidateTitle(title);
-        ImageUrl = NormalizeUrl(imageUrl);
+
+        var newTitle = ValidateTitle(title);
+        var newImageUrl = NormalizeUrl(imageUrl);
+        if (newTitle == Title && newImageUrl == ImageUrl) return;
+
+        Title = newTitle;
+        ImageUrl = newImageUrl;
+        AddDomainEvent(new GroupInfoUpdatedEvent(Id, actorId));
     }
 
     public ConversationMember AddMember(Guid actorId, Guid userId)
@@ -76,14 +84,19 @@ public class Conversation : BaseAuditableEntity
         if (existing is { IsActive: true })
             throw new DomainRuleViolationException("User is already a member of this conversation.");
 
+        ConversationMember member;
         if (existing is not null)
         {
             existing.Rejoin();
-            return existing;
+            member = existing;
+        }
+        else
+        {
+            member = ConversationMember.Create(Id, userId);
+            Members.Add(member);
         }
 
-        var member = ConversationMember.Create(Id, userId);
-        Members.Add(member);
+        AddDomainEvent(new MemberAddedEvent(Id, userId, actorId));
         return member;
     }
 
@@ -103,6 +116,9 @@ public class Conversation : BaseAuditableEntity
 
     public void LeaveMember(Guid userId)
     {
+        if (Type == ConversationType.Direct)
+            throw new DomainRuleViolationException("Direct conversations cannot be left; clear the chat instead.");
+
         var member = FindActiveMember(userId)
             ?? throw new DomainRuleViolationException("User is not an active member.");
 
@@ -111,6 +127,7 @@ public class Conversation : BaseAuditableEntity
             throw new DomainRuleViolationException("The owner must transfer ownership before leaving.");
 
         member.Leave();
+        AddDomainEvent(new MemberLeftEvent(Id, userId));
     }
 
     public void ChangeMemberRole(Guid actorId, Guid targetUserId, GroupRole newRole)
@@ -125,7 +142,10 @@ public class Conversation : BaseAuditableEntity
         if (target.Role == GroupRole.Owner)
             throw new DomainRuleViolationException("The role of the owner cannot be changed.");
 
+        var previousRole = target.Role;
         target.ChangeRole(newRole);
+        if (previousRole != newRole)
+            AddDomainEvent(new MemberRoleChangedEvent(Id, targetUserId, newRole));
     }
 
     public void TransferOwnership(Guid currentOwnerId, Guid newOwnerId)
@@ -139,6 +159,8 @@ public class Conversation : BaseAuditableEntity
 
         owner.ChangeRole(GroupRole.Admin);
         newOwner.ChangeRole(GroupRole.Owner);
+        AddDomainEvent(new MemberRoleChangedEvent(Id, currentOwnerId, GroupRole.Admin));
+        AddDomainEvent(new MemberRoleChangedEvent(Id, newOwnerId, GroupRole.Owner));
     }
 
     public Message SendMessage(Guid senderId, MessageType type, string? content,
@@ -159,6 +181,9 @@ public class Conversation : BaseAuditableEntity
 
     public ConversationMember? FindActiveMember(Guid userId) =>
         Members.FirstOrDefault(m => m.UserId == userId && m.IsActive);
+
+    private void RaiseCreated() =>
+        AddDomainEvent(new ConversationCreatedEvent(Id, Type, Members.Select(m => m.UserId).ToList()));
 
     private ConversationMember RequireRole(Guid userId, GroupRole minimum)
     {
