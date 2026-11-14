@@ -65,7 +65,6 @@ public class ApplicationDbContext(
             switch (entry.State)
             {
                 case EntityState.Added:
-                    entry.Property(x => x.CreatedAtUtc).CurrentValue = now;
                     var createdBy = entry.Property(x => x.CreatedById);
                     createdBy.CurrentValue ??= userId;
                     break;

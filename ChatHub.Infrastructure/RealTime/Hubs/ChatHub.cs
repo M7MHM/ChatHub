@@ -1,4 +1,5 @@
 using ChatHub.Application.Common.Interfaces;
+using ChatHub.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +11,7 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
 {
     public override async Task OnConnectedAsync()
     {
-        if (Guid.TryParse(Context.UserIdentifier, out var userId))
+        if (Context.User.GetUserId() is { } userId)
         {
             tracker.Add(userId, Context.ConnectionId);
 
@@ -29,7 +30,7 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
 
     public override Task OnDisconnectedAsync(Exception? exception)
     {
-        if (Guid.TryParse(Context.UserIdentifier, out var userId))
+        if (Context.User.GetUserId() is { } userId)
             tracker.Remove(userId, Context.ConnectionId);
 
         return base.OnDisconnectedAsync(exception);

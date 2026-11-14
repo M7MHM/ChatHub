@@ -41,7 +41,7 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasIndex(m => new { m.ConversationId, m.CreatedAtUtc });
+        builder.HasIndex(m => new { m.ConversationId, m.CreatedAtUtc, m.Id });
         builder.HasIndex(m => m.SenderId);
 
     }
