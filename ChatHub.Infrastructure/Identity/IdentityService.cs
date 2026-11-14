@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -9,12 +10,21 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace ChatHub.Infrastructure.Identity;
 
-public class IdentityService(IOptions<JwtSettings> options) : IIdentityService
+public class IdentityService(IOptions<JwtSettings> options, TimeProvider timeProvider) : IIdentityService
 {
+    private const int RefreshTokenSizeBytes = 64;
+    private static readonly JsonWebTokenHandler TokenHandler = new();
+
     private readonly JwtSettings _settings = options.Value;
 
-    public string GenerateAccessToken(UserProfile user)
+    public TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(_settings.RefreshTokenDays);
+
+    public (string Token, DateTime ExpiresAtUtc) GenerateAccessToken(UserProfile user)
     {
+        ArgumentNullException.ThrowIfNull(user);
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var expiresAtUtc = now.AddMinutes(_settings.ExpiryMinutes);
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.Secret));
 
         var descriptor = new SecurityTokenDescriptor
@@ -27,12 +37,21 @@ public class IdentityService(IOptions<JwtSettings> options) : IIdentityService
             ]),
             Issuer = _settings.Issuer,
             Audience = _settings.Audience,
-            Expires = DateTime.UtcNow.AddMinutes(_settings.ExpiryMinutes),
+            IssuedAt = now,
+            NotBefore = now,
+            Expires = expiresAtUtc,
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
         };
 
-        return new JsonWebTokenHandler().CreateToken(descriptor);
+        return (TokenHandler.CreateToken(descriptor), expiresAtUtc);
     }
 
-    public string GenerateRefreshToken() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+    public string GenerateRefreshToken() =>
+        Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(RefreshTokenSizeBytes));
+
+    public string HashToken(string token)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(token);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    }
 }

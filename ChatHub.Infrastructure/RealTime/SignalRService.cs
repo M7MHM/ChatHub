@@ -8,6 +8,14 @@ public class SignalRService(IHubContext<Hubs.ChatHub> hubContext, UserConnection
     public Task SendToUserAsync(Guid userId, string method, object payload, CancellationToken cancellationToken = default) =>
         hubContext.Clients.User(userId.ToString()).SendAsync(method, payload, cancellationToken);
 
+    public Task SendToUsersAsync(IEnumerable<Guid> userIds, string method, object payload, CancellationToken cancellationToken = default)
+    {
+        var ids = userIds.Distinct().Select(id => id.ToString()).ToList();
+        return ids.Count == 0
+            ? Task.CompletedTask
+            : hubContext.Clients.Users(ids).SendAsync(method, payload, cancellationToken);
+    }
+
     public Task SendToConversationAsync(Guid conversationId, string method, object payload, CancellationToken cancellationToken = default) =>
         hubContext.Clients.Group(ConversationGroups.Name(conversationId)).SendAsync(method, payload, cancellationToken);
 

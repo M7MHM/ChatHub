@@ -11,13 +11,15 @@ namespace ChatHub.Infrastructure.Persistence.Data;
 public class ApplicationDbContext(
     DbContextOptions<ApplicationDbContext> options,
     ICurrentUserService currentUser,
-    IPublisher publisher) : DbContext(options), IApplicationDbContext
+    IPublisher publisher,
+    TimeProvider timeProvider) : DbContext(options), IApplicationDbContext
 {
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,7 +34,6 @@ public class ApplicationDbContext(
 
         var result = await base.SaveChangesAsync(cancellationToken);
 
-        // Events are published only after a successful save.
         foreach (var domainEvent in domainEvents)
         {
             var notificationType = typeof(DomainEventNotification<>).MakeGenericType(domainEvent.GetType());
@@ -57,7 +58,7 @@ public class ApplicationDbContext(
 
     private void ApplyAuditInformation()
     {
-        var now = DateTime.UtcNow;
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         var userId = currentUser.UserId;
 
         foreach (var entry in ChangeTracker.Entries<BaseAuditableEntity>())

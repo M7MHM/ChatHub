@@ -25,6 +25,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .HasMaxLength(254);
 
         builder.Property(u => u.DisplayName).IsRequired().HasMaxLength(UserProfile.MaxDisplayNameLength);
+        builder.Property(u => u.PasswordHash).IsRequired().HasMaxLength(512);
         builder.Property(u => u.AvatarUrl).HasMaxLength(2048);
         builder.Property(u => u.Bio).HasMaxLength(UserProfile.MaxBioLength);
 

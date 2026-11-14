@@ -11,11 +11,6 @@ public sealed record Error(string Code, string Description, ErrorType Type = Err
     public static Error Forbidden(string code, string description) => new(code, description, ErrorType.Forbidden);
 }
 
-/// <summary>
-/// Error strategy: expected failures (not found, conflict, forbidden, business validation) are returned as
-/// a failed <see cref="Result"/>. Broken invariants throw <c>DomainRuleViolationException</c>, and malformed
-/// requests throw <c>ValidationException</c> from the validation pipeline behavior.
-/// </summary>
 public class Result
 {
     protected Result(bool isSuccess, Error error)
