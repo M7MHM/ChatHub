@@ -1,5 +1,6 @@
 using System.Reflection;
 using ChatHub.Application.Common.Behaviors;
+using ChatHub.Application.Features.Auth;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,8 @@ public static class DependencyInjection
             cfg.RegisterServicesFromAssembly(assembly);
             cfg.AddOpenBehavior(typeof(ValidationBehavior<,>));
         });
+
+        services.AddScoped<AuthTokenService>();
 
         return services;
     }
