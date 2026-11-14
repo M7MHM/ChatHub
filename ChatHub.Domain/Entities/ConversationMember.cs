@@ -1,5 +1,6 @@
 using ChatHub.Domain.Common;
 using ChatHub.Domain.Enums;
+using ChatHub.Domain.Events;
 using ChatHub.Domain.Exceptions;
 
 namespace ChatHub.Domain.Entities;
@@ -105,6 +106,7 @@ public class ConversationMember : BaseAuditableEntity
         if (LastReadMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
         LastReadMessageId = message.Id;
         LastReadMessageAtUtc = message.CreatedAtUtc;
+        AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow));
     }
 
     private void AdvanceDelivered(Message message)
@@ -112,6 +114,7 @@ public class ConversationMember : BaseAuditableEntity
         if (LastDeliveredMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
         LastDeliveredMessageId = message.Id;
         LastDeliveredMessageAtUtc = message.CreatedAtUtc;
+        AddDomainEvent(new MessageDeliveredEvent(ConversationId, UserId, message.Id));
     }
 
     private void ValidateMessage(Message message)

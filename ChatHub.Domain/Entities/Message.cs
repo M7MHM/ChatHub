@@ -68,6 +68,7 @@ public class Message : BaseAuditableEntity
         Content = trimmed;
         IsEdited = true;
         EditedAtUtc = DateTime.UtcNow;
+        AddDomainEvent(new MessageEditedEvent(Id, ConversationId));
     }
 
     public void Delete(Guid deletedById)
@@ -79,6 +80,7 @@ public class Message : BaseAuditableEntity
         IsDeleted = true;
         Content = null;
         Attachment = null;
+        AddDomainEvent(new MessageDeletedEvent(Id, ConversationId));
     }
 
     private void EnsureNotDeleted()
