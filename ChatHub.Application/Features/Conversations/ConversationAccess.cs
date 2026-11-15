@@ -26,6 +26,12 @@ internal static class ConversationAccess
             cancellationToken);
         if (member is not null) return member;
 
+        return await db.MembershipErrorAsync(conversationId, cancellationToken);
+    }
+
+    public static async Task<Error> MembershipErrorAsync(
+        this IApplicationDbContext db, Guid conversationId, CancellationToken cancellationToken)
+    {
         var exists = await db.Conversations.AnyAsync(c => c.Id == conversationId && !c.IsDeleted, cancellationToken);
         return exists ? ConversationErrors.NotMember : ConversationErrors.NotFound;
     }
