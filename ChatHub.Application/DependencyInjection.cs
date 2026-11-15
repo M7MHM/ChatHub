@@ -1,6 +1,7 @@
 using System.Reflection;
 using ChatHub.Application.Common.Behaviors;
 using ChatHub.Application.Features.Auth;
+using ChatHub.Application.Features.Files;
 using FluentValidation;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<AuthTokenService>();
+        services.AddSingleton<FileUrls>();
 
         return services;
     }

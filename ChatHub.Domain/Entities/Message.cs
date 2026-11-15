@@ -77,10 +77,11 @@ public class Message : BaseAuditableEntity
         if (deletedById != SenderId)
             throw new DomainRuleViolationException("Only the sender can delete a message.");
 
+        var attachmentFileId = Attachment?.FileId;
         IsDeleted = true;
         Content = null;
         Attachment = null;
-        AddDomainEvent(new MessageDeletedEvent(Id, ConversationId));
+        AddDomainEvent(new MessageDeletedEvent(Id, ConversationId, attachmentFileId));
     }
 
     private void EnsureNotDeleted()

@@ -18,22 +18,31 @@ internal static class ConversationAccess
         if (conversation.FindActiveMember(userId) is null) return ConversationErrors.NotMember;
         return conversation;
     }
-    public static async Task<Result<ConversationMember>> LoadMembershipAsync(
-        this IApplicationDbContext db, Guid conversationId, Guid userId, CancellationToken cancellationToken)
-    {
-        var member = await db.ConversationMembers.FirstOrDefaultAsync(m =>
-            m.ConversationId == conversationId && m.UserId == userId && m.IsActive && !m.Conversation.IsDeleted,
-            cancellationToken);
-        if (member is not null) return member;
+    public static Task<Result<ConversationMember>> LoadMembershipAsync(
+        this IApplicationDbContext db, Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
+        db.ConversationMembers.FindActiveMembershipAsync(db, conversationId, userId, cancellationToken);
 
-        return await db.MembershipErrorAsync(conversationId, cancellationToken);
-    }
+    public static Task<Result<ConversationMember>> ReadMembershipAsync(
+        this IApplicationDbContext db, Guid conversationId, Guid userId, CancellationToken cancellationToken) =>
+        db.ConversationMembers.AsNoTracking().FindActiveMembershipAsync(db, conversationId, userId, cancellationToken);
 
     public static async Task<Error> MembershipErrorAsync(
         this IApplicationDbContext db, Guid conversationId, CancellationToken cancellationToken)
     {
         var exists = await db.Conversations.AnyAsync(c => c.Id == conversationId && !c.IsDeleted, cancellationToken);
         return exists ? ConversationErrors.NotMember : ConversationErrors.NotFound;
+    }
+
+    private static async Task<Result<ConversationMember>> FindActiveMembershipAsync(
+        this IQueryable<ConversationMember> members, IApplicationDbContext db, Guid conversationId, Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var member = await members.FirstOrDefaultAsync(m =>
+            m.ConversationId == conversationId && m.UserId == userId && m.IsActive && !m.Conversation.IsDeleted,
+            cancellationToken);
+        if (member is not null) return member;
+
+        return await db.MembershipErrorAsync(conversationId, cancellationToken);
     }
 
     public static Task<bool> IsBlockedEitherWayAsync(

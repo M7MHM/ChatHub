@@ -31,6 +31,7 @@ public sealed class MarkAsReadCommandHandler(IApplicationDbContext db, ICurrentU
 
         var message = await db.FindVisibleMessageAsync(membership.Value, request.MessageId, cancellationToken);
         if (message is null) return MessageErrors.NotFound;
+        if (message.SenderId == membership.Value.UserId) return Result.Success();
 
         membership.Value.MarkAsRead(message);
         await db.SaveChangesAsync(cancellationToken);

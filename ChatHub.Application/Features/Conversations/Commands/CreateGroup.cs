@@ -1,15 +1,16 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
-using ChatHub.Application.Common.Validation;
+using ChatHub.Application.Features.Files;
 using ChatHub.Domain.Entities;
+using ChatHub.Domain.Enums;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatHub.Application.Features.Conversations.Commands;
 
-public sealed record CreateGroupCommand(string Title, string? ImageUrl, IReadOnlyList<Guid>? MemberIds)
+public sealed record CreateGroupCommand(string Title, Guid? ImageFileId, IReadOnlyList<Guid>? MemberIds)
     : IRequest<Result<CreateGroupResponse>>
 {
     public const int MaxInitialMembers = 200;
@@ -20,7 +21,7 @@ public sealed class CreateGroupCommandValidator : AbstractValidator<CreateGroupC
     public CreateGroupCommandValidator()
     {
         RuleFor(x => x.Title).NotEmpty().MaximumLength(Conversation.MaxTitleLength);
-        RuleFor(x => x.ImageUrl).ValidUrl();
+        RuleFor(x => x.ImageFileId).NotEqual(Guid.Empty);
         RuleFor(x => x.MemberIds)
             .Must(ids => ids is null || ids.Count <= CreateGroupCommand.MaxInitialMembers)
             .WithMessage($"A group can be created with at most {CreateGroupCommand.MaxInitialMembers} members.");
@@ -48,7 +49,17 @@ public sealed class CreateGroupCommandHandler(
                 .Select(u => u.Id)
                 .ToListAsync(cancellationToken);
 
-        var conversation = Conversation.CreateGroup(me, request.Title, request.ImageUrl);
+        string? imageUrl = null;
+        if (request.ImageFileId is { } fileId)
+        {
+            var image = await db.LoadAttachableFileAsync(fileId, me, FilePurpose.GroupImage, cancellationToken);
+            if (image.IsFailure) return image.Error;
+
+            image.Value.MarkAttached();
+            imageUrl = FileUrls.PathFor(fileId);
+        }
+
+        var conversation = Conversation.CreateGroup(me, request.Title, imageUrl);
         foreach (var userId in memberIds)
             conversation.AddMember(me, userId);
 

@@ -31,6 +31,7 @@ public sealed class MarkAsDeliveredCommandHandler(IApplicationDbContext db, ICur
 
         var message = await db.FindVisibleMessageAsync(membership.Value, request.MessageId, cancellationToken);
         if (message is null) return MessageErrors.NotFound;
+        if (message.SenderId == membership.Value.UserId) return Result.Success();
 
         membership.Value.MarkAsDelivered(message);
         await db.SaveChangesAsync(cancellationToken);

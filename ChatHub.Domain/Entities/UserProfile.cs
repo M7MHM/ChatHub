@@ -16,6 +16,7 @@ public class UserProfile : BaseAuditableEntity
     public Email? Email { get; private set; }
     public string DisplayName { get; private set; } = string.Empty;
     public string PasswordHash { get; private set; } = string.Empty;
+    public Guid SecurityStamp { get; private set; }
     public string? AvatarUrl { get; private set; }
     public string? Bio { get; private set; }
     public bool IsOnline { get; private set; } = false;
@@ -35,6 +36,7 @@ public class UserProfile : BaseAuditableEntity
         {
             DisplayName = ValidateDisplayName(displayName),
             PasswordHash = ValidatePasswordHash(passwordHash),
+            SecurityStamp = Guid.NewGuid(),
             PhoneNumber = phoneNumber,
             Email = email
         };
@@ -61,7 +63,10 @@ public class UserProfile : BaseAuditableEntity
     {
         EnsureNotDeleted();
         PasswordHash = ValidatePasswordHash(newPasswordHash);
+        RotateSecurityStamp();
     }
+
+    public void RotateSecurityStamp() => SecurityStamp = Guid.NewGuid();
 
     public void ChangePhoneNumber(PhoneNumber? phoneNumber)
     {
@@ -105,6 +110,7 @@ public class UserProfile : BaseAuditableEntity
     {
         GoOffline();
         IsDeleted = true;
+        RotateSecurityStamp();
     }
 
     private static string ValidateDisplayName(string displayName)

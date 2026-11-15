@@ -14,8 +14,16 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
     {
         var userId = GetRequiredUserId();
 
-        // Track first so group changes made while we are still joining reach this connection.
-        var isFirstConnection = tracker.Add(userId, Context.ConnectionId);
+        var isActiveUser = await db.UserProfiles
+            .AsNoTracking()
+            .AnyAsync(u => u.Id == userId && !u.IsDeleted, Context.ConnectionAborted);
+        if (!isActiveUser)
+        {
+            Context.Abort();
+            return;
+        }
+
+        var isFirstConnection = tracker.Add(userId, Context);
         try
         {
             var conversationIds = await db.ConversationMembers
@@ -32,7 +40,6 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
         }
         catch
         {
-            // SignalR does not call OnDisconnectedAsync when OnConnectedAsync fails, so undo the tracking here.
             tracker.Remove(userId, Context.ConnectionId);
             throw;
         }
@@ -42,7 +49,6 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        // ConnectionAborted is already cancelled at this point, so the presence update must not use it.
         if (Context.User.GetUserId() is { } userId && tracker.Remove(userId, Context.ConnectionId))
             await SetPresenceAsync(userId, isOnline: false, CancellationToken.None);
 
@@ -73,7 +79,6 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
     {
         var user = await db.UserProfiles.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
 
-        // Another connection may have changed the state while the user was loading; the tracker is the source of truth.
         if (user is null || tracker.IsOnline(userId) != isOnline) return;
 
         if (isOnline) user.GoOnline();

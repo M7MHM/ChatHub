@@ -25,6 +25,13 @@ public class SignalRService(IHubContext<Hubs.ChatHub> hubContext, UserConnection
             await hubContext.Groups.AddToGroupAsync(connectionId, ConversationGroups.Name(conversationId), cancellationToken);
     }
 
+    public Task DisconnectUserAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        foreach (var connection in tracker.GetConnectionContexts(userId))
+            connection.Abort();
+        return Task.CompletedTask;
+    }
+
     public async Task RemoveFromConversationGroupAsync(Guid userId, Guid conversationId, CancellationToken cancellationToken = default)
     {
         foreach (var connectionId in tracker.GetConnections(userId))

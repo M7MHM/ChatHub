@@ -16,6 +16,6 @@ public sealed record MessageResponse(
     DateTime CreatedAtUtc,
     DateTime? EditedAtUtc);
 
-public sealed record AttachmentResponse(string Url, string FileName, string ContentType, long SizeBytes);
+public sealed record AttachmentResponse(Guid FileId, string FileName, string ContentType, long SizeBytes, string Url);
 
 public sealed record ReplyPreview(Guid MessageId, string SenderName, string? Text, MessageType Type, bool IsDeleted);

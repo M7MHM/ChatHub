@@ -85,7 +85,8 @@ public static class DependencyInjection
                             context.HttpContext.Request.Path.StartsWithSegments(ChatHubPath))
                             context.Token = accessToken;
                         return Task.CompletedTask;
-                    }
+                    },
+                    OnTokenValidated = SecurityStampValidator.ValidateAsync
                 };
             });
 
@@ -103,9 +104,15 @@ public static class DependencyInjection
                 "FileStorage requires a RootPath and a MaxFileSizeBytes greater than zero.")
             .Validate(s => s.AllowedContentTypes.All(FileStorageSettings.SupportedContentTypes.ContainsKey),
                 "FileStorage AllowedContentTypes may only contain supported content types.")
+            .Validate(s => Encoding.UTF8.GetByteCount(s.SigningKey) >= 32,
+                "FileStorage requires a SigningKey of at least 32 bytes.")
+            .Validate(s => s.CleanupIntervalMinutes > 0,
+                "FileStorage CleanupIntervalMinutes must be greater than zero.")
             .ValidateOnStart();
 
         services.AddSingleton<IFileStorage, LocalFileStorage>();
+        services.AddSingleton<IFileUrlSigner, HmacFileUrlSigner>();
+        services.AddHostedService<FileCleanupService>();
     }
 
     private static void AddRealTime(this IServiceCollection services)

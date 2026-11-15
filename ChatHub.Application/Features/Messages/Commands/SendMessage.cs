@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Conversations;
+using ChatHub.Application.Features.Files;
 using ChatHub.Domain.Entities;
 using ChatHub.Domain.Enums;
 using ChatHub.Domain.ValueObjects;
@@ -13,21 +14,14 @@ namespace ChatHub.Application.Features.Messages.Commands;
 public sealed record SendMessageCommand(
     MessageType Type,
     string? Content,
-    AttachmentInput? Attachment,
+    Guid? AttachmentFileId,
     Guid? ReplyToMessageId) : IRequest<Result<MessageResponse>>
 {
     public Guid ConversationId { get; init; }
 }
 
-public sealed record AttachmentInput(string Url, string FileName, string ContentType, long SizeBytes);
-
 public sealed class SendMessageCommandValidator : AbstractValidator<SendMessageCommand>
 {
-    public const string UploadsPrefix = "/uploads/";
-    private const int MaxUrlLength = 2048;
-    private const int MaxFileNameLength = 255;
-    private const int MaxContentTypeLength = 255;
-
     public SendMessageCommandValidator()
     {
         RuleFor(x => x.ConversationId).NotEmpty();
@@ -40,43 +34,20 @@ public sealed class SendMessageCommandValidator : AbstractValidator<SendMessageC
         When(x => x.Type == MessageType.Text, () =>
         {
             RuleFor(x => x.Content).NotEmpty();
-            RuleFor(x => x.Attachment).Null().WithMessage("Text messages cannot have an attachment.");
+            RuleFor(x => x.AttachmentFileId).Null().WithMessage("Text messages cannot have an attachment.");
         });
 
         When(x => x.Type is MessageType.Image or MessageType.File or MessageType.Voice, () =>
         {
-            RuleFor(x => x.Attachment).NotNull().WithMessage(x => $"{x.Type} messages require an attachment.");
-        });
-
-        When(x => x.Attachment is not null, () =>
-        {
-            RuleFor(x => x.Attachment!.Url)
-                .NotEmpty()
-                .MaximumLength(MaxUrlLength)
-                .Must(url => url.StartsWith(UploadsPrefix, StringComparison.Ordinal) &&
-                             !url.Contains("..", StringComparison.Ordinal) && !url.Contains('\\'))
-                .WithMessage($"The attachment must be a file uploaded to {UploadsPrefix}.");
-            RuleFor(x => x.Attachment!.FileName).NotEmpty().MaximumLength(MaxFileNameLength);
-            RuleFor(x => x.Attachment!.ContentType)
-                .NotEmpty()
-                .MaximumLength(MaxContentTypeLength)
-                .Must((command, contentType) => MatchesType(command.Type, contentType))
-                .WithMessage(x => $"The content type does not match a {x.Type} message.");
-            RuleFor(x => x.Attachment!.SizeBytes).GreaterThan(0);
+            RuleFor(x => x.AttachmentFileId)
+                .NotNull()
+                .NotEqual(Guid.Empty)
+                .WithMessage(x => $"{x.Type} messages require an attachment.");
         });
     }
-
-    private static bool MatchesType(MessageType type, string? contentType) =>
-        contentType is not null && type switch
-        {
-            MessageType.Image => contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase),
-            MessageType.Voice => contentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase),
-            MessageType.File => true,
-            _ => false
-        };
 }
 
-public sealed class SendMessageCommandHandler(IApplicationDbContext db, ICurrentUserService currentUser)
+public sealed class SendMessageCommandHandler(IApplicationDbContext db, ICurrentUserService currentUser, FileUrls urls)
     : IRequestHandler<SendMessageCommand, Result<MessageResponse>>
 {
     public async Task<Result<MessageResponse>> Handle(SendMessageCommand request, CancellationToken cancellationToken)
@@ -100,15 +71,29 @@ public sealed class SendMessageCommandHandler(IApplicationDbContext db, ICurrent
             if (replyTo is null) return MessageErrors.ReplyTargetNotFound;
         }
 
-        var attachment = request.Attachment is { } a
-            ? Attachment.Create(a.Url.Trim(), a.FileName.Trim(), a.ContentType.Trim(), a.SizeBytes)
-            : null;
+        Attachment? attachment = null;
+        if (request.AttachmentFileId is { } fileId)
+        {
+            var file = await db.LoadAttachableFileAsync(fileId, me, FilePurpose.MessageAttachment, cancellationToken);
+            if (file.IsFailure) return file.Error;
+            if (!MatchesMessageType(request.Type, file.Value.ContentType)) return FileErrors.TypeMismatch;
+
+            file.Value.MarkAttached();
+            attachment = Attachment.Create(file.Value.Id, file.Value.FileName, file.Value.ContentType, file.Value.SizeBytes);
+        }
 
         var message = conversation.SendMessage(me, request.Type, request.Content, attachment, replyTo);
         db.Messages.Add(message);
         await db.SaveChangesAsync(cancellationToken);
 
-        var response = await db.LoadForViewerAsync(message.Id, MemberVisibility.VisibleAfterUtcOf(member), cancellationToken);
+        var response = await db.LoadForViewerAsync(message.Id, MemberVisibility.VisibleAfterUtcOf(member), urls, cancellationToken);
         return response!;
     }
+
+    private static bool MatchesMessageType(MessageType type, string contentType) => type switch
+    {
+        MessageType.Image => contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase),
+        MessageType.Voice => contentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase),
+        _ => true
+    };
 }

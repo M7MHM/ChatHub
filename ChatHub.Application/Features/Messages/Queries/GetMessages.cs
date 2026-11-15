@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Conversations;
+using ChatHub.Application.Features.Files;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -29,7 +30,7 @@ public sealed class GetMessagesQueryValidator : AbstractValidator<GetMessagesQue
     }
 }
 
-public sealed class GetMessagesQueryHandler(IApplicationDbContext db, ICurrentUserService currentUser)
+public sealed class GetMessagesQueryHandler(IApplicationDbContext db, ICurrentUserService currentUser, FileUrls urls)
     : IRequestHandler<GetMessagesQuery, Result<CursorPage<MessageResponse>>>
 {
     public async Task<Result<CursorPage<MessageResponse>>> Handle(
@@ -59,7 +60,7 @@ public sealed class GetMessagesQueryHandler(IApplicationDbContext db, ICurrentUs
         if (messages is null) return await db.MembershipErrorAsync(request.ConversationId, cancellationToken);
 
         var hasMore = messages.Count > request.PageSize;
-        var page = hasMore ? messages.Take(request.PageSize).ToList() : messages;
+        var page = messages.Take(request.PageSize).Select(m => m.WithSignedAttachment(urls)).ToList();
         var nextCursor = hasMore ? MessageCursor.Encode(page[^1].CreatedAtUtc, page[^1].Id) : null;
 
         return new CursorPage<MessageResponse>(page, nextCursor, hasMore);

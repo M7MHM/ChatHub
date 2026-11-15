@@ -194,6 +194,10 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                                 .HasColumnType("character varying(255)")
                                 .HasColumnName("AttachmentContentType");
 
+                            b1.Property<Guid>("FileId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("AttachmentFileId");
+
                             b1.Property<string>("FileName")
                                 .IsRequired()
                                 .HasMaxLength(255)
@@ -203,12 +207,6 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                             b1.Property<long>("FileSizeBytes")
                                 .HasColumnType("bigint")
                                 .HasColumnName("AttachmentSizeBytes");
-
-                            b1.Property<string>("FileUrl")
-                                .IsRequired()
-                                .HasMaxLength(2048)
-                                .HasColumnType("character varying(2048)")
-                                .HasColumnName("AttachmentUrl");
                         });
 
                     b.HasKey("Id");
@@ -262,6 +260,62 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("RefreshTokens", (string)null);
+                });
+
+            modelBuilder.Entity("ChatHub.Domain.Entities.UploadedFile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AttachedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Purpose")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
+
+                    b.HasIndex("IsDeleted", "AttachedAtUtc");
+
+                    b.ToTable("UploadedFiles", (string)null);
                 });
 
             modelBuilder.Entity("ChatHub.Domain.Entities.UserBlock", b =>
@@ -334,6 +388,9 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<Guid>("SecurityStamp")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -404,6 +461,15 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ChatHub.Domain.Entities.UploadedFile", b =>
+                {
+                    b.HasOne("ChatHub.Domain.Entities.UserProfile", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

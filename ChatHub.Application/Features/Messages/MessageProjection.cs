@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Features.Conversations;
+using ChatHub.Application.Features.Files;
 using ChatHub.Application.Features.Users;
 using ChatHub.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -24,8 +25,8 @@ internal static class MessageProjection
         v.Message.IsDeleted ? null : v.Message.Content,
         v.Message.IsDeleted || v.Message.Attachment == null
             ? null
-            : new AttachmentResponse(v.Message.Attachment.FileUrl, v.Message.Attachment.FileName,
-                v.Message.Attachment.ContentType, v.Message.Attachment.FileSizeBytes),
+            : new AttachmentResponse(v.Message.Attachment.FileId, v.Message.Attachment.FileName,
+                v.Message.Attachment.ContentType, v.Message.Attachment.FileSizeBytes, string.Empty),
         v.Message.ParentMessage == null
             ? null
             : new ReplyPreview(
@@ -51,15 +52,24 @@ internal static class MessageProjection
             .Select(x => new MessageView { Message = x, VisibleAfterUtc = visibleAfterUtc })
             .Select(Response);
 
-    public static Task<MessageResponse?> LoadForViewerAsync(
-        this IApplicationDbContext db, Guid messageId, DateTime visibleAfterUtc, CancellationToken cancellationToken) =>
-        db.Messages
+    public static MessageResponse WithSignedAttachment(this MessageResponse message, FileUrls urls) =>
+        message.Attachment is null
+            ? message
+            : message with { Attachment = message.Attachment with { Url = urls.SignedPathFor(message.Attachment.FileId) } };
+
+    public static async Task<MessageResponse?> LoadForViewerAsync(
+        this IApplicationDbContext db, Guid messageId, DateTime visibleAfterUtc, FileUrls urls,
+        CancellationToken cancellationToken)
+    {
+        var message = await db.Messages
             .AsNoTracking()
             .Where(x => x.Id == messageId)
             .ToResponses(visibleAfterUtc)
             .FirstOrDefaultAsync(cancellationToken);
+        return message?.WithSignedAttachment(urls);
+    }
     public static async Task<MessageResponse?> LoadForConversationAsync(
-        this IApplicationDbContext db, Guid messageId, Guid conversationId, CancellationToken cancellationToken)
+        this IApplicationDbContext db, Guid messageId, Guid conversationId, FileUrls urls, CancellationToken cancellationToken)
     {
         var visibleAfterUtc = await db.ConversationMembers
             .AsNoTracking()
@@ -67,6 +77,6 @@ internal static class MessageProjection
             .Select(MemberVisibility.Projection)
             .MaxAsync(v => (DateTime?)v.VisibleAfterUtc, cancellationToken);
 
-        return await db.LoadForViewerAsync(messageId, visibleAfterUtc ?? DateTime.UnixEpoch, cancellationToken);
+        return await db.LoadForViewerAsync(messageId, visibleAfterUtc ?? DateTime.UnixEpoch, urls, cancellationToken);
     }
 }

@@ -4,8 +4,6 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Options;
 
 namespace ChatHub.WebAPI.Filters;
-
-// [RequestSizeLimit]/[RequestFormLimits] only take constants; this applies both limits from FileStorage:MaxFileSizeBytes.
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class FileUploadLimitsAttribute : Attribute, IResourceFilter
 {

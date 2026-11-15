@@ -56,7 +56,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseUploads();
 app.UseCors("Client");
 app.UseRateLimiter();
 app.UseAuthentication();

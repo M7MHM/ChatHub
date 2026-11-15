@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Globalization;
 using ChatHub.Application.Common.Exceptions;
 using ChatHub.Application.Common.Interfaces;
-using ChatHub.Application.Common.Models;
 using FluentValidation.Results;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -11,14 +10,11 @@ namespace ChatHub.Infrastructure.Storage;
 
 public class LocalFileStorage : IFileStorage
 {
-    private const string UploadsFolder = "uploads";
-    private const string UrlPrefix = "/" + UploadsFolder + "/";
-    private const int MaxFileNameLength = 255;
     private const int BufferSize = 81920;
 
     private readonly long _maxFileSizeBytes;
     private readonly TimeProvider _timeProvider;
-    private readonly string _uploadsRoot;
+    private readonly string _root;
     private readonly HashSet<string> _allowedContentTypes;
 
     public LocalFileStorage(IOptions<FileStorageSettings> options, IHostEnvironment environment, TimeProvider timeProvider)
@@ -26,14 +22,13 @@ public class LocalFileStorage : IFileStorage
         var settings = options.Value;
         _maxFileSizeBytes = settings.MaxFileSizeBytes;
         _timeProvider = timeProvider;
-        _uploadsRoot = Path.GetFullPath(Path.Combine(environment.ContentRootPath, settings.RootPath, UploadsFolder));
+        _root = Path.GetFullPath(Path.Combine(environment.ContentRootPath, settings.RootPath));
         _allowedContentTypes = new HashSet<string>(
             settings.AllowedContentTypes.Count > 0 ? settings.AllowedContentTypes : FileStorageSettings.SupportedContentTypes.Keys,
             StringComparer.OrdinalIgnoreCase);
     }
 
-    public async Task<StoredFile> SaveAsync(Stream content, string fileName, string contentType,
-        CancellationToken cancellationToken = default)
+    public async Task<string> SaveAsync(Stream content, string contentType, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(content);
 
@@ -44,25 +39,24 @@ public class LocalFileStorage : IFileStorage
         if (content.CanSeek && content.Length - content.Position > _maxFileSizeBytes)
             throw TooLarge();
 
+        var header = new byte[FileSignatures.HeaderLength];
+        var headerLength = await content.ReadAtLeastAsync(header, header.Length, throwOnEndOfStream: false, cancellationToken);
+        if (headerLength == 0) throw Invalid("The file is empty.");
+        if (!FileSignatures.Matches(normalizedType, header.AsMemory(0, headerLength)))
+            throw Invalid("File content does not match its type");
+
         var now = _timeProvider.GetUtcNow();
-        var year = now.Year.ToString("D4", CultureInfo.InvariantCulture);
-        var month = now.Month.ToString("D2", CultureInfo.InvariantCulture);
-        var storedName = $"{Guid.CreateVersion7():N}{extension}";
+        var storageKey = string.Create(CultureInfo.InvariantCulture,
+            $"{now.Year:D4}/{now.Month:D2}/{Guid.CreateVersion7():N}{extension}");
+        var fullPath = ResolvePath(storageKey);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
 
-        var directory = Path.Combine(_uploadsRoot, year, month);
-        Directory.CreateDirectory(directory);
-        var fullPath = Path.Combine(directory, storedName);
-
-        long size;
         try
         {
-            await using (var target = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-                             BufferSize, FileOptions.Asynchronous))
-            {
-                size = await CopyWithLimitAsync(content, target, cancellationToken);
-            }
-
-            if (size == 0) throw Invalid("The file is empty.");
+            await using var target = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                BufferSize, FileOptions.Asynchronous);
+            await target.WriteAsync(header.AsMemory(0, headerLength), cancellationToken);
+            await CopyWithLimitAsync(content, target, headerLength, cancellationToken);
         }
         catch
         {
@@ -70,32 +64,41 @@ public class LocalFileStorage : IFileStorage
             throw;
         }
 
-        return new StoredFile($"{UrlPrefix}{year}/{month}/{storedName}",
-            SanitizeFileName(fileName, storedName), normalizedType, size);
+        return storageKey;
     }
 
-    public Task DeleteAsync(string fileUrl, CancellationToken cancellationToken = default)
+    public Task<Stream> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(fileUrl) || !fileUrl.StartsWith(UrlPrefix, StringComparison.Ordinal))
-            return Task.CompletedTask;
+        Stream stream = new FileStream(ResolvePath(storageKey), FileMode.Open, FileAccess.Read, FileShare.Read,
+            BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult(stream);
+    }
 
-        var relativePath = fileUrl[UrlPrefix.Length..].Replace('/', Path.DirectorySeparatorChar);
-        var fullPath = Path.GetFullPath(Path.Combine(_uploadsRoot, relativePath));
-
-        // Guards against "../" segments escaping the uploads folder.
-        if (fullPath.StartsWith(_uploadsRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            File.Delete(fullPath);
-
+    public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        File.Delete(ResolvePath(storageKey));
         return Task.CompletedTask;
     }
 
-    private async Task<long> CopyWithLimitAsync(Stream source, Stream target, CancellationToken cancellationToken)
+    private string ResolvePath(string storageKey)
+    {
+        if (string.IsNullOrWhiteSpace(storageKey))
+            throw new ArgumentException("A storage key is required.", nameof(storageKey));
+
+        var fullPath = Path.GetFullPath(Path.Combine(_root, storageKey.Replace('/', Path.DirectorySeparatorChar)));
+        if (!fullPath.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new ArgumentException("The storage key points outside the storage root.", nameof(storageKey));
+        return fullPath;
+    }
+
+    private async Task CopyWithLimitAsync(Stream source, Stream target, long alreadyWritten, CancellationToken cancellationToken)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
         {
-            long total = 0;
+            var total = alreadyWritten;
             int read;
             while ((read = await source.ReadAsync(buffer.AsMemory(0, BufferSize), cancellationToken)) > 0)
             {
@@ -103,7 +106,6 @@ public class LocalFileStorage : IFileStorage
                 if (total > _maxFileSizeBytes) throw TooLarge();
                 await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             }
-            return total;
         }
         finally
         {
@@ -132,16 +134,6 @@ public class LocalFileStorage : IFileStorage
         var separator = contentType.IndexOf(';');
         var mediaType = (separator >= 0 ? contentType[..separator] : contentType).Trim().ToLowerInvariant();
         return mediaType.Length == 0 ? null : mediaType;
-    }
-
-    private static string SanitizeFileName(string? fileName, string fallback)
-    {
-        if (string.IsNullOrWhiteSpace(fileName)) return fallback;
-
-        var name = fileName[(fileName.LastIndexOfAny(['/', '\\']) + 1)..];
-        name = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
-        if (name.Length == 0) return fallback;
-        return name.Length <= MaxFileNameLength ? name : name[..MaxFileNameLength];
     }
 
     private ValidationException TooLarge() =>

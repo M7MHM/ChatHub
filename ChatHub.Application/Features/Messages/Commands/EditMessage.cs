@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Conversations;
+using ChatHub.Application.Features.Files;
 using ChatHub.Domain.Entities;
 using FluentValidation;
 using MediatR;
@@ -23,7 +24,7 @@ public sealed class EditMessageCommandValidator : AbstractValidator<EditMessageC
     }
 }
 
-public sealed class EditMessageCommandHandler(IApplicationDbContext db, ICurrentUserService currentUser)
+public sealed class EditMessageCommandHandler(IApplicationDbContext db, ICurrentUserService currentUser, FileUrls urls)
     : IRequestHandler<EditMessageCommand, Result<MessageResponse>>
 {
     public async Task<Result<MessageResponse>> Handle(EditMessageCommand request, CancellationToken cancellationToken)
@@ -39,7 +40,7 @@ public sealed class EditMessageCommandHandler(IApplicationDbContext db, ICurrent
         await db.SaveChangesAsync(cancellationToken);
 
         var visibleAfterUtc = MemberVisibility.VisibleAfterUtcOf(membership.Value);
-        var response = await db.LoadForViewerAsync(message.Id, visibleAfterUtc, cancellationToken);
+        var response = await db.LoadForViewerAsync(message.Id, visibleAfterUtc, urls, cancellationToken);
         return response!;
     }
 }

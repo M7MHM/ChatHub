@@ -88,8 +88,9 @@ Content-Type: application/json
 
 {
   "displayName": "Alice A.",
-  "avatarUrl": null,
-  "bio": "Hello there"
+  "bio": "Hello there",
+  "avatarFileId": null,
+  "removeAvatar": false
 }
 
 ###
@@ -113,11 +114,12 @@ DELETE {{baseUrl}}/api/users/{{carolId}}/block
 Authorization: Bearer {{accessToken}}
 
 ### ───────────── Files ─────────────
-# Allowed: images, audio, pdf, office documents, zip. To upload a real file replace the body
-# line with:  < ./path/to/photo.png  (and set the part's Content-Type to image/png).
+# purpose = MessageAttachment | Avatar | GroupImage. Allowed: images, audio, pdf, office documents, zip.
+# The content must match the declared type (magic bytes are checked). To upload a real file use
+# a body line like:  < ./samples/avatar.png
 
 # @name upload
-POST {{baseUrl}}/api/files
+POST {{baseUrl}}/api/files?purpose=MessageAttachment
 Authorization: Bearer {{accessToken}}
 Content-Type: multipart/form-data; boundary=ChatHubBoundary
 
@@ -131,7 +133,36 @@ Content-Type: application/pdf
 --ChatHubBoundary--
 
 ###
+# A message attachment's url is signed (1 hour) and downloads without a token.
 GET {{baseUrl}}{{upload.response.body.$.url}}
+
+###
+# @name uploadAvatar
+POST {{baseUrl}}/api/files?purpose=Avatar
+Authorization: Bearer {{accessToken}}
+Content-Type: multipart/form-data; boundary=ChatHubBoundary
+
+--ChatHubBoundary
+Content-Disposition: form-data; name="file"; filename="avatar.png"
+Content-Type: image/png
+
+< ./samples/avatar.png
+--ChatHubBoundary--
+
+###
+PUT {{baseUrl}}/api/users/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "displayName": "Alice A.",
+  "bio": "Hello there",
+  "avatarFileId": "{{uploadAvatar.response.body.$.id}}"
+}
+
+###
+# Avatars and group images are public.
+GET {{baseUrl}}/api/files/{{uploadAvatar.response.body.$.id}}
 
 ### ───────────── Conversations ─────────────
 
@@ -152,7 +183,7 @@ Content-Type: application/json
 
 {
   "title": "Team",
-  "imageUrl": null,
+  "imageFileId": null,
   "memberIds": ["{{userId}}"]
 }
 
@@ -171,7 +202,8 @@ Content-Type: application/json
 
 {
   "title": "Team ChatHub",
-  "imageUrl": null
+  "imageFileId": null,
+  "removeImage": false
 }
 
 ###
@@ -214,7 +246,7 @@ Content-Type: application/json
 {
   "type": "Text",
   "content": "Hello team!",
-  "attachment": null,
+  "attachmentFileId": null,
   "replyToMessageId": null
 }
 
@@ -226,12 +258,7 @@ Content-Type: application/json
 {
   "type": "File",
   "content": "Meeting notes",
-  "attachment": {
-    "url": "{{upload.response.body.$.url}}",
-    "fileName": "{{upload.response.body.$.fileName}}",
-    "contentType": "{{upload.response.body.$.contentType}}",
-    "sizeBytes": {{upload.response.body.$.sizeBytes}}
-  },
+  "attachmentFileId": "{{upload.response.body.$.id}}",
   "replyToMessageId": "{{messageId}}"
 }
 
@@ -264,6 +291,10 @@ Content-Type: application/json
 
 ###
 GET {{baseUrl}}/api/conversations/{{conversationId}}/read-state
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/messages/{{messageId}}
 Authorization: Bearer {{accessToken}}
 
 ###

@@ -33,6 +33,7 @@ public class IdentityService(IOptions<JwtSettings> options, TimeProvider timePro
             [
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Name, user.DisplayName),
+                new Claim(ClaimsPrincipalExtensions.SecurityStampClaim, user.SecurityStamp.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             ]),
             Issuer = _settings.Issuer,

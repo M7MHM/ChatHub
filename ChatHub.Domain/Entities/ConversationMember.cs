@@ -95,12 +95,14 @@ public class ConversationMember : BaseAuditableEntity
     public void MarkAsDelivered(Message message)
     {
         ValidateMessage(message);
+        if (IsOwnMessage(message)) return;
         AdvanceDelivered(message);
     }
 
     public void MarkAsRead(Message message)
     {
         ValidateMessage(message);
+        if (IsOwnMessage(message)) return;
         AdvanceDelivered(message);
 
         if (LastReadMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
@@ -116,6 +118,8 @@ public class ConversationMember : BaseAuditableEntity
         LastDeliveredMessageAtUtc = message.CreatedAtUtc;
         AddDomainEvent(new MessageDeliveredEvent(ConversationId, UserId, message.Id));
     }
+
+    private bool IsOwnMessage(Message message) => message.SenderId == UserId;
 
     private void ValidateMessage(Message message)
     {

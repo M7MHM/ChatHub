@@ -11,5 +11,6 @@ public interface IApplicationDbContext
     DbSet<ConversationMember> ConversationMembers { get; }
     DbSet<Message> Messages { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
+    DbSet<UploadedFile> UploadedFiles { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

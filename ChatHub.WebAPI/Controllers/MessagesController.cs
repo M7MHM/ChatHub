@@ -34,6 +34,10 @@ public sealed class MessagesController(ISender sender) : ApiController(sender)
         Guid conversationId, [FromBody] MarkAsDeliveredCommand command, CancellationToken cancellationToken) =>
         ToNoContent(await Sender.Send(command with { ConversationId = conversationId }, cancellationToken));
 
+    [HttpGet("messages/{id:guid}")]
+    public async Task<ActionResult<MessageResponse>> Get(Guid id, CancellationToken cancellationToken) =>
+        ToOk(await Sender.Send(new GetMessageQuery(id), cancellationToken));
+
     [HttpPut("messages/{id:guid}")]
     public async Task<ActionResult<MessageResponse>> Edit(
         Guid id, [FromBody] EditMessageCommand command, CancellationToken cancellationToken) =>

@@ -29,9 +29,13 @@ public class FileStorageSettings
             ["application/x-zip-compressed"] = ".zip"
         };
 
-    public string RootPath { get; init; } = "wwwroot";
+    public string RootPath { get; init; } = "storage";
 
     public long MaxFileSizeBytes { get; init; } = 20 * 1024 * 1024;
 
     public List<string> AllowedContentTypes { get; init; } = [];
+
+    public string SigningKey { get; init; } = string.Empty;
+
+    public int CleanupIntervalMinutes { get; init; } = 30;
 }

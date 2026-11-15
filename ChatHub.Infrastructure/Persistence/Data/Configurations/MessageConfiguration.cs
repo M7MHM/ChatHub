@@ -20,7 +20,7 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.ComplexProperty(m => m.Attachment, a =>
         {
             a.IsRequired(false);
-            a.Property(x => x.FileUrl).HasColumnName("AttachmentUrl").HasMaxLength(2048);
+            a.Property(x => x.FileId).HasColumnName("AttachmentFileId");
             a.Property(x => x.FileName).HasColumnName("AttachmentFileName").HasMaxLength(255);
             a.Property(x => x.ContentType).HasColumnName("AttachmentContentType").HasMaxLength(255);
             a.Property(x => x.FileSizeBytes).HasColumnName("AttachmentSizeBytes");

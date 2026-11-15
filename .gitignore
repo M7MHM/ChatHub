@@ -481,6 +481,6 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# ChatHub uploaded files (FileStorage:RootPath/uploads)
-ChatHub.WebAPI/wwwroot/uploads/
+# ChatHub private file storage (FileStorage:RootPath)
+storage/
 tests-scratch/

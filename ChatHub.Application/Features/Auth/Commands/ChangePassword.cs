@@ -25,7 +25,8 @@ public sealed class ChangePasswordCommandHandler(
     IApplicationDbContext db,
     ICurrentUserService currentUser,
     IPasswordHasher passwordHasher,
-    AuthTokenService tokens) : IRequestHandler<ChangePasswordCommand, Result<AuthResponse>>
+    AuthTokenService tokens,
+    ISignalRService signalR) : IRequestHandler<ChangePasswordCommand, Result<AuthResponse>>
 {
     public async Task<Result<AuthResponse>> Handle(ChangePasswordCommand request, CancellationToken cancellationToken)
     {
@@ -41,6 +42,8 @@ public sealed class ChangePasswordCommandHandler(
 
         var response = tokens.Issue(user);
         await db.SaveChangesAsync(cancellationToken);
+
+        await signalR.DisconnectUserAsync(user.Id, cancellationToken);
         return response;
     }
 }

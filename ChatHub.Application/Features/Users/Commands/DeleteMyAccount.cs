@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Auth;
+using ChatHub.Application.Features.Files;
 using ChatHub.Domain.Entities;
 using ChatHub.Domain.Enums;
 using MediatR;
@@ -32,8 +33,11 @@ public sealed class DeleteMyAccountCommandHandler(
             LeaveGroup(group, userId);
 
         await tokens.RevokeAllAsync(user.Id, cancellationToken);
+        await db.MarkFileDeletedAsync(user.AvatarUrl, FilePurpose.Avatar, cancellationToken);
         user.Delete();
         await db.SaveChangesAsync(cancellationToken);
+
+        await signalR.DisconnectUserAsync(userId, cancellationToken);
 
         foreach (var group in groups)
             await signalR.RemoveFromConversationGroupAsync(userId, group.Id, cancellationToken);
