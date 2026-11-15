@@ -1,12 +1,18 @@
 using ChatHub.Application.Common.Models;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ChatHub.WebAPI.Controllers;
 
 [ApiController]
-public abstract class ApiController : ControllerBase
+[Authorize]
+[Route("api")]
+public abstract class ApiController(ISender sender) : ControllerBase
 {
-    protected IActionResult Problem(Error error)
+    protected ISender Sender { get; } = sender;
+
+    protected ActionResult Problem(Error error)
     {
         var status = error.Type switch
         {
@@ -17,23 +23,24 @@ public abstract class ApiController : ControllerBase
             _ => StatusCodes.Status400BadRequest
         };
 
-        var problem = new ProblemDetails
-        {
-            Status = status,
-            Title = error.Type.ToString(),
-            Detail = error.Description
-        };
+        var problem = ProblemDetailsFactory.CreateProblemDetails(HttpContext, status, detail: error.Description);
         problem.Extensions["code"] = error.Code;
 
         return new ObjectResult(problem) { StatusCode = status };
     }
 
-    protected IActionResult ToOk(Result result) => result.IsSuccess ? Ok() : Problem(result.Error);
+    protected ActionResult ToOk<T>(Result<T> result) =>
+        result.IsSuccess ? Ok(result.Value) : Problem(result.Error);
 
-    protected IActionResult ToOk<T>(Result<T> result) => result.IsSuccess ? Ok(result.Value) : Problem(result.Error);
+    protected ActionResult ToNoContent(Result result) =>
+        result.IsSuccess ? NoContent() : Problem(result.Error);
 
-    protected IActionResult ToNoContent(Result result) => result.IsSuccess ? NoContent() : Problem(result.Error);
+    protected ActionResult ToCreated<T>(Result<T> result, Func<T, string> location) =>
+        result.IsSuccess ? Created(location(result.Value), result.Value) : Problem(result.Error);
 
-    protected IActionResult ToCreated<T>(Result<T> result, Func<T, string> locationFactory) =>
-        result.IsSuccess ? Created(locationFactory(result.Value), result.Value) : Problem(result.Error);
+    protected ActionResult ToCreatedOrOk<T>(Result<T> result, Func<T, bool> wasCreated, Func<T, string> location)
+    {
+        if (result.IsFailure) return Problem(result.Error);
+        return wasCreated(result.Value) ? Created(location(result.Value), result.Value) : Ok(result.Value);
+    }
 }

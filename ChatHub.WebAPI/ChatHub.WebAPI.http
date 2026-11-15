@@ -1,6 +1,313 @@
-@ChatHub.WebAPI_HostAddress = http://localhost:5285
+@baseUrl = http://localhost:5285
+@accessToken = {{login.response.body.$.accessToken}}
+@refreshToken = {{login.response.body.$.refreshToken}}
+@userId = {{registerBob.response.body.$.user.id}}
+@carolId = {{registerCarol.response.body.$.user.id}}
+@directConversationId = {{createDirect.response.body.$.conversationId}}
+@conversationId = {{createGroup.response.body.$.conversationId}}
+@messageId = {{sendText.response.body.$.id}}
 
-GET {{ChatHub.WebAPI_HostAddress}}/weatherforecast/
-Accept: application/json
+# Run the requests top to bottom: later requests use ids and tokens from earlier responses.
+# Real-time: connect a SignalR client to {{baseUrl}}/hubs/chat?access_token={{accessToken}}
+
+### Health
+GET {{baseUrl}}/health
+
+### ───────────── Auth (per IP: register/login 10 / minute, refresh/logout/change-password 60 / minute) ─────────────
+
+# @name registerAlice
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "displayName": "Alice",
+  "email": "alice@example.com",
+  "phoneNumber": null,
+  "password": "secret123"
+}
 
 ###
+# @name registerBob
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "displayName": "Bob",
+  "email": null,
+  "phoneNumber": "+20 100 123 4567",
+  "password": "secret123"
+}
+
+###
+# @name registerCarol
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "displayName": "Carol",
+  "email": "carol@example.com",
+  "password": "secret123"
+}
+
+###
+# @name login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "identifier": "alice@example.com",
+  "password": "secret123"
+}
+
+###
+# @name refresh
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+###
+POST {{baseUrl}}/api/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refresh.response.body.$.refreshToken}}"
+}
+
+### ───────────── Users ─────────────
+
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{accessToken}}
+
+###
+PUT {{baseUrl}}/api/users/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "displayName": "Alice A.",
+  "avatarUrl": null,
+  "bio": "Hello there"
+}
+
+###
+GET {{baseUrl}}/api/users/search?query=bob&pageSize=20
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/api/users/{{carolId}}/block
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/users/me/blocked
+Authorization: Bearer {{accessToken}}
+
+###
+DELETE {{baseUrl}}/api/users/{{carolId}}/block
+Authorization: Bearer {{accessToken}}
+
+### ───────────── Files ─────────────
+# Allowed: images, audio, pdf, office documents, zip. To upload a real file replace the body
+# line with:  < ./path/to/photo.png  (and set the part's Content-Type to image/png).
+
+# @name upload
+POST {{baseUrl}}/api/files
+Authorization: Bearer {{accessToken}}
+Content-Type: multipart/form-data; boundary=ChatHubBoundary
+
+--ChatHubBoundary
+Content-Disposition: form-data; name="file"; filename="notes.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4
+% ChatHub sample attachment
+%%EOF
+--ChatHubBoundary--
+
+###
+GET {{baseUrl}}{{upload.response.body.$.url}}
+
+### ───────────── Conversations ─────────────
+
+# @name createDirect
+POST {{baseUrl}}/api/conversations/direct
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "otherUserId": "{{userId}}"
+}
+
+###
+# @name createGroup
+POST {{baseUrl}}/api/conversations/groups
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Team",
+  "imageUrl": null,
+  "memberIds": ["{{userId}}"]
+}
+
+###
+GET {{baseUrl}}/api/conversations?pageSize=20
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/conversations/{{conversationId}}
+Authorization: Bearer {{accessToken}}
+
+###
+PUT {{baseUrl}}/api/conversations/{{conversationId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Team ChatHub",
+  "imageUrl": null
+}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/members
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "userId": "{{carolId}}"
+}
+
+###
+PUT {{baseUrl}}/api/conversations/{{conversationId}}/members/{{userId}}/role
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "role": "Admin"
+}
+
+###
+DELETE {{baseUrl}}/api/conversations/{{conversationId}}/members/{{carolId}}
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/mute
+Authorization: Bearer {{accessToken}}
+
+###
+DELETE {{baseUrl}}/api/conversations/{{conversationId}}/mute
+Authorization: Bearer {{accessToken}}
+
+### ───────────── Messages ─────────────
+
+# @name sendText
+POST {{baseUrl}}/api/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "type": "Text",
+  "content": "Hello team!",
+  "attachment": null,
+  "replyToMessageId": null
+}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/messages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "type": "File",
+  "content": "Meeting notes",
+  "attachment": {
+    "url": "{{upload.response.body.$.url}}",
+    "fileName": "{{upload.response.body.$.fileName}}",
+    "contentType": "{{upload.response.body.$.contentType}}",
+    "sizeBytes": {{upload.response.body.$.sizeBytes}}
+  },
+  "replyToMessageId": "{{messageId}}"
+}
+
+###
+# @name messages
+GET {{baseUrl}}/api/conversations/{{conversationId}}/messages?pageSize=1
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/conversations/{{conversationId}}/messages?pageSize=1&cursor={{messages.response.body.$.nextCursor}}
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/delivered
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "messageId": "{{messageId}}"
+}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/read
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "messageId": "{{messageId}}"
+}
+
+###
+GET {{baseUrl}}/api/conversations/{{conversationId}}/read-state
+Authorization: Bearer {{accessToken}}
+
+###
+PUT {{baseUrl}}/api/messages/{{messageId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Hello team! (edited)"
+}
+
+###
+DELETE {{baseUrl}}/api/messages/{{messageId}}
+Authorization: Bearer {{accessToken}}
+
+### ───────────── Leaving and clearing ─────────────
+
+POST {{baseUrl}}/api/conversations/{{directConversationId}}/clear
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/transfer-ownership
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "newOwnerId": "{{userId}}"
+}
+
+###
+POST {{baseUrl}}/api/conversations/{{conversationId}}/leave
+Authorization: Bearer {{accessToken}}
+
+### ───────────── Account (run last) ─────────────
+
+POST {{baseUrl}}/api/auth/change-password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "secret123",
+  "newPassword": "newSecret456"
+}
+
+###
+DELETE {{baseUrl}}/api/users/me
+Authorization: Bearer {{accessToken}}
