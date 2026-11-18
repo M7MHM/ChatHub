@@ -5,10 +5,13 @@ namespace ChatHub.Api.IntegrationTests;
 
 public sealed class InfrastructureEndpointTests(ApiFixture fixture) : ApiTestBase(fixture)
 {
-    [Fact]
-    public async Task Health_Get_Returns200Healthy()
+    [Theory]
+    [InlineData("/health")]
+    [InlineData("/health/live")]
+    [InlineData("/health/ready")]
+    public async Task Health_Get_Returns200Healthy(string path)
     {
-        var response = await Api.GetAsync("/health");
+        var response = await Api.GetAsync(path);
 
         response.Status.ShouldBe(200);
         response.Text.ShouldBe("Healthy");

@@ -23,8 +23,8 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 |---|---:|---:|
 | ChatHub.Domain.UnitTests | 154 | 189 |
 | ChatHub.Application.IntegrationTests | 227 | 236 |
-| ChatHub.Api.IntegrationTests | 134 | 135 |
-| **Total** | **515** | **560** |
+| ChatHub.Api.IntegrationTests | 136 | 139 |
+| **Total** | **517** | **564** |
 
 ## What changed in the port
 
@@ -297,7 +297,7 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | 3 | xmin row version did not create a column | Application.IntegrationTests:<br>`PersistenceTests.Migrate_RefreshTokensTable_HasNoXminUserColumn` |  |
 | 4 | partial unique, DirectKey and message keyset indexes exist | Application.IntegrationTests:<br>`PersistenceTests.Migrate_Indexes_CreatesPartialUniqueContactDirectKeyAndMessageKeysetIndexes` |  |
 | 5 | API started | Api.IntegrationTests:<br>`ApiFixture.InitializeAsync`<br>`InfrastructureEndpointTests.Health_Get_Returns200Healthy` | There's no separate process to wait for any more: the fixture boots `Program` in-process with `WebApplicationFactory`, and every API test fails if it doesn't start. |
-| 6 | GET /health -> 200 Healthy | Api.IntegrationTests:<br>`InfrastructureEndpointTests.Health_Get_Returns200Healthy` |  |
+| 6 | GET /health -> 200 Healthy | Api.IntegrationTests:<br>`InfrastructureEndpointTests.Health_Get_Returns200Healthy` | Theory, 3 cases: `/health`, `/health/live`, `/health/ready` |
 | 7 | OpenAPI: Bearer security scheme | Api.IntegrationTests:<br>`InfrastructureEndpointTests.OpenApiDocument_Get_DeclaresTheBearerSecurityScheme` |  |
 | 8 | OpenAPI: protected operations require Bearer, anonymous ones do not | Api.IntegrationTests:<br>`InfrastructureEndpointTests.OpenApiDocument_Get_RequiresBearerOnProtectedOperationsOnly` |  |
 | 9 | Scalar UI served in Development | Api.IntegrationTests:<br>`InfrastructureEndpointTests.ScalarUi_InDevelopment_IsServed` |  |
