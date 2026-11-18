@@ -1,4 +1,11 @@
 <Solution>
+  <Folder Name="/tests/">
+    <File Path="tests/COVERAGE.md" />
+    <File Path="tests/Directory.Build.props" />
+    <Project Path="tests/ChatHub.Api.IntegrationTests/ChatHub.Api.IntegrationTests.csproj" />
+    <Project Path="tests/ChatHub.Application.IntegrationTests/ChatHub.Application.IntegrationTests.csproj" />
+    <Project Path="tests/ChatHub.Domain.UnitTests/ChatHub.Domain.UnitTests.csproj" />
+  </Folder>
   <Project Path="ChatHub.Application/ChatHub.Application.csproj" />
   <Project Path="ChatHub.Domain/ChatHub.Domain.csproj" />
   <Project Path="ChatHub.Infrastructure/ChatHub.Infrastructure.csproj" />
