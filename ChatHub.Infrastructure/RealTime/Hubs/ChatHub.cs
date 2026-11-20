@@ -1,14 +1,18 @@
+using ChatHub.Application.Common.Caching;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.RealTime;
 using ChatHub.Infrastructure.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ChatHub.Infrastructure.RealTime.Hubs;
 
 [Authorize]
-public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : Hub
+public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, HybridCache cache, IServiceScopeFactory scopeFactory)
+    : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -61,10 +65,21 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db) : 
             throw new HubException("A conversation id is required.");
 
         var userId = GetRequiredUserId();
-        var isActiveMember = await db.ConversationMembers
-            .AsNoTracking()
-            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId &&
-                           m.IsActive && !m.Conversation.IsDeleted, Context.ConnectionAborted);
+        var isActiveMember = await cache.GetOrCreateAsync(
+            CacheKeys.Membership(conversationId, userId),
+            (scopeFactory, conversationId, userId),
+            static async (state, token) =>
+            {
+                await using var scope = state.scopeFactory.CreateAsyncScope();
+                var scopedDb = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+                return await scopedDb.ConversationMembers
+                    .AsNoTracking()
+                    .AnyAsync(m => m.ConversationId == state.conversationId && m.UserId == state.userId &&
+                                   m.IsActive && !m.Conversation.IsDeleted, token);
+            },
+            CacheKeys.MembershipEntryOptions,
+            [CacheKeys.ConversationTag(conversationId)],
+            Context.ConnectionAborted);
         if (!isActiveMember)
             throw new HubException("You are not an active member of this conversation.");
 

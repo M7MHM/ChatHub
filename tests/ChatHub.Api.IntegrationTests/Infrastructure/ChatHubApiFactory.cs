@@ -9,7 +9,8 @@ using Microsoft.Extensions.Logging;
 
 namespace ChatHub.Api.IntegrationTests.Infrastructure;
 
-public sealed class ChatHubApiFactory(string connectionString, string filesRoot, LogCapture logs) : WebApplicationFactory<Program>
+public sealed class ChatHubApiFactory(string connectionString, string filesRoot, LogCapture logs, string? redisConnectionString = null)
+    : WebApplicationFactory<Program>
 {
     public const string JwtSecret = "api-tests-jwt-secret-0123456789abcdef0123";
     public const string FileSigningKey = "api-tests-file-signing-key-0123456789abcdef";
@@ -21,6 +22,8 @@ public sealed class ChatHubApiFactory(string connectionString, string filesRoot,
         builder.UseSetting("FileStorage:RootPath", filesRoot);
         builder.UseSetting("FileStorage:SigningKey", FileSigningKey);
         builder.UseSetting("Jwt:Secret", JwtSecret);
+        if (redisConnectionString is not null)
+            builder.UseSetting("ConnectionStrings:Redis", redisConnectionString);
         builder.ConfigureLogging(logging =>
         {
             logging.ClearProviders();

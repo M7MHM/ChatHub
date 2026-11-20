@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ChatHub.Application.Common.Caching;
 using ChatHub.Application.Common.Interfaces;
+using ChatHub.Infrastructure.Caching;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Infrastructure.RealTime;
@@ -9,22 +11,27 @@ using ChatHub.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 namespace ChatHub.Infrastructure;
 
 public static class DependencyInjection
 {
     public const string ChatHubPath = "/hubs/chat";
+    private const string RedisInstanceName = "chathub:";
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
 
+        services.AddCaching(configuration);
         services.AddPersistence(configuration);
         services.AddSecurity(configuration);
         services.AddFileStorage(configuration);
@@ -33,16 +40,48 @@ public static class DependencyInjection
         return services;
     }
 
+    public static IHealthChecksBuilder AddRedisHealthCheck(this IHealthChecksBuilder builder, IConfiguration configuration,
+        params string[] tags) =>
+        RedisConfiguration(configuration) is null
+            ? builder
+            : builder.AddCheck<RedisHealthCheck>("redis", HealthStatus.Degraded, tags);
+
     private static void AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
 
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql =>
-                npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName)));
+        services.AddScoped<CacheInvalidationInterceptor>();
+        services.AddDbContext<ApplicationDbContext>((sp, options) => options
+            .UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName))
+            .AddInterceptors(sp.GetRequiredService<CacheInvalidationInterceptor>()));
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+    }
+
+    private static void AddCaching(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddHybridCache(options => options.DefaultEntryOptions = CacheKeys.DefaultEntryOptions);
+
+        if (RedisConfiguration(configuration) is not { } redis) return;
+
+        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
+        services.AddStackExchangeRedisCache(options => options.InstanceName = RedisInstanceName);
+        services.AddOptions<RedisCacheOptions>()
+            .Configure<IServiceProvider>((options, provider) => options.ConnectionMultiplexerFactory =
+                () => Task.FromResult(provider.GetRequiredService<IConnectionMultiplexer>()));
+    }
+
+    private static ConfigurationOptions? RedisConfiguration(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("Redis");
+        if (string.IsNullOrWhiteSpace(connectionString)) return null;
+
+        var options = ConfigurationOptions.Parse(connectionString);
+        options.AbortOnConnectFail = false;
+        options.BacklogPolicy = BacklogPolicy.FailFast;
+        return options;
     }
 
     private static void AddSecurity(this IServiceCollection services, IConfiguration configuration)

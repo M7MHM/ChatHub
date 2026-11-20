@@ -10,6 +10,8 @@ dotnet test ChatHub.slnx
 
 Docker must be running: each integration project starts its own `postgres:17` container with Testcontainers, applies the real EF Core migrations, and resets the data with Respawn before every test. Uploaded files go to a per-run folder under the system temp directory, which is deleted at the end of the run. Nothing depends on a local database or a fixed path.
 
+The existing suites run without Redis (HybridCache is L1-only). `RedisCacheTests` and `RedisOutageTests` each get their own collection and fixture (`RedisApiFixture`: a `postgres:17` and a `redis:8-alpine` container), so stopping Redis in the outage test cannot affect any other test. `ApiFixture.ResetDatabaseAsync` also clears the whole cache, because Respawn deletes rows behind EF's back and the invalidation interceptor never sees those deletes.
+
 To run one project or one class:
 
 ```bash
@@ -22,9 +24,9 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
 | ChatHub.Domain.UnitTests | 154 | 189 |
-| ChatHub.Application.IntegrationTests | 227 | 236 |
-| ChatHub.Api.IntegrationTests | 136 | 139 |
-| **Total** | **517** | **564** |
+| ChatHub.Application.IntegrationTests | 231 | 240 |
+| ChatHub.Api.IntegrationTests | 141 | 144 |
+| **Total** | **526** | **573** |
 
 ## What changed in the port
 

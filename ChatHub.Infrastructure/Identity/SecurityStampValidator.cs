@@ -1,6 +1,8 @@
+using ChatHub.Application.Common.Caching;
 using ChatHub.Infrastructure.Persistence.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ChatHub.Infrastructure.Identity;
@@ -17,14 +19,26 @@ internal static class SecurityStampValidator
             return;
         }
 
-        var db = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
-        var user = await db.UserProfiles
-            .AsNoTracking()
-            .Where(u => u.Id == userId.Value)
-            .Select(u => new { u.IsDeleted, u.SecurityStamp })
-            .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+        var services = context.HttpContext.RequestServices;
+        var user = await services.GetRequiredService<HybridCache>().GetOrCreateAsync(
+            CacheKeys.SecurityStamp(userId.Value),
+            (scopeFactory: services.GetRequiredService<IServiceScopeFactory>(), userId: userId.Value),
+            static async (state, token) =>
+            {
+                await using var scope = state.scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                return await db.UserProfiles
+                    .AsNoTracking()
+                    .Where(u => u.Id == state.userId)
+                    .Select(u => new UserStamp(u.IsDeleted, u.SecurityStamp))
+                    .FirstOrDefaultAsync(token);
+            },
+            CacheKeys.SecurityStampEntryOptions,
+            cancellationToken: context.HttpContext.RequestAborted);
 
         if (user is null || user.IsDeleted || user.SecurityStamp != stamp.Value)
             context.Fail("The access token is no longer valid.");
     }
+
+    internal sealed record UserStamp(bool IsDeleted, Guid SecurityStamp);
 }

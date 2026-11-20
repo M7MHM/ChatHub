@@ -1,6 +1,7 @@
 using System.Net;
 using ChatHub.Api.IntegrationTests.Infrastructure;
 using ChatHub.Application.Common.RealTime;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace ChatHub.Api.IntegrationTests;
@@ -121,6 +122,39 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
         await aliceHub.Connection.InvokeAsync("Typing", directId);
 
         await bobHub.WaitForAsync(ChatEvents.UserTyping, p => p.G("userId") == alice.Id && p.G("conversationId") == directId);
+    }
+
+    [Fact]
+    public async Task Hub_TypingRightAfterBeingAddedToTheGroup_IsAccepted()
+    {
+        var alice = await RegisterAsync("Alice");
+        var carol = await RegisterAsync("Carol");
+        var groupId = await CreateGroupAsync(alice, "Team");
+        var aliceHub = await ConnectHubAsync(alice);
+        var carolHub = await ConnectHubAsync(carol);
+        await Should.ThrowAsync<HubException>(() => carolHub.Connection.InvokeAsync("Typing", groupId));
+        TakeLoggedErrors().ShouldHaveSingleItem().Exception.ShouldBeOfType<HubException>();
+
+        (await Api.PostAsync($"/api/conversations/{groupId}/members", new { userId = carol.Id }, alice.Token)).Status.ShouldBe(204);
+
+        await carolHub.Connection.InvokeAsync("Typing", groupId);
+        await aliceHub.WaitForAsync(ChatEvents.UserTyping, p => p.G("userId") == carol.Id && p.G("conversationId") == groupId);
+    }
+
+    [Fact]
+    public async Task Hub_TypingRightAfterBeingKicked_IsRejected()
+    {
+        var alice = await RegisterAsync("Alice");
+        var bob = await RegisterAsync("Bob");
+        var groupId = await CreateGroupAsync(alice, "Team", bob.Id);
+        var bobHub = await ConnectHubAsync(bob);
+        await bobHub.Connection.InvokeAsync("Typing", groupId);
+
+        (await Api.DeleteAsync($"/api/conversations/{groupId}/members/{bob.Id}", alice.Token)).Status.ShouldBe(204);
+
+        var error = await Should.ThrowAsync<HubException>(() => bobHub.Connection.InvokeAsync("Typing", groupId));
+        error.Message.ShouldContain("not an active member");
+        TakeLoggedErrors().ShouldHaveSingleItem().Exception.ShouldBeOfType<HubException>();
     }
 
     [Fact]

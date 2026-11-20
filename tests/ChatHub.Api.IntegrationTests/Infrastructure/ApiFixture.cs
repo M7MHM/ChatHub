@@ -3,13 +3,15 @@ using ChatHub.Infrastructure.Persistence.Data;
 using MediatR;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Respawn;
 using Testcontainers.PostgreSql;
 
 namespace ChatHub.Api.IntegrationTests.Infrastructure;
 
-public sealed class ApiFixture : IAsyncLifetime
+public class ApiFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17").Build();
     private Respawner? _respawner;
@@ -21,7 +23,9 @@ public sealed class ApiFixture : IAsyncLifetime
     public TestServer Server => Factory.Server;
     public IServiceProvider Services => Factory.Services;
 
-    public async Task InitializeAsync()
+    protected virtual string? RedisConnectionString => null;
+
+    public virtual async Task InitializeAsync()
     {
         await _container.StartAsync();
         var connectionString = _container.GetConnectionString();
@@ -41,7 +45,7 @@ public sealed class ApiFixture : IAsyncLifetime
         }
 
         Directory.CreateDirectory(FilesRoot);
-        _factory = new ChatHubApiFactory(connectionString, FilesRoot, Logs);
+        _factory = new ChatHubApiFactory(connectionString, FilesRoot, Logs, RedisConnectionString);
         _ = _factory.Server;
     }
 
@@ -50,9 +54,10 @@ public sealed class ApiFixture : IAsyncLifetime
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();
         await _respawner!.ResetAsync(connection);
+        await Services.GetRequiredService<HybridCache>().RemoveByTagAsync("*");
     }
 
-    public async Task DisposeAsync()
+    public virtual async Task DisposeAsync()
     {
         if (_factory is not null) await _factory.DisposeAsync();
         await _container.DisposeAsync();

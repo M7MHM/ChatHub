@@ -3,6 +3,7 @@ using ChatHub.Application.Features.Users.Commands;
 using ChatHub.Application.IntegrationTests.Infrastructure;
 using ChatHub.Infrastructure.RealTime;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
 using ChatHubEndpoint = ChatHub.Infrastructure.RealTime.Hubs.ChatHub;
 
@@ -66,7 +67,8 @@ public sealed class ChatHubTests(DatabaseFixture database) : AppTestBase(databas
     {
         await using var scope = Services.CreateAsyncScope();
         var context = new FakeHubCallerContext(userId);
-        using var hub = new ChatHubEndpoint(_tracker, scope.ServiceProvider.GetRequiredService<IApplicationDbContext>())
+        using var hub = new ChatHubEndpoint(_tracker, scope.ServiceProvider.GetRequiredService<IApplicationDbContext>(),
+            scope.ServiceProvider.GetRequiredService<HybridCache>(), scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>())
         {
             Context = context,
             Groups = groups
