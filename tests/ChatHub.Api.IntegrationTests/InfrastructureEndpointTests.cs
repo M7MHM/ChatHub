@@ -18,6 +18,15 @@ public sealed class InfrastructureEndpointTests(ApiFixture fixture) : ApiTestBas
     }
 
     [Fact]
+    public async Task InstanceIdHeader_ByDefault_IsNotSent()
+    {
+        var response = await Api.GetAsync("/health/live");
+
+        response.Status.ShouldBe(200);
+        response.Header("X-Instance-Id").ShouldBeNull();
+    }
+
+    [Fact]
     public async Task OpenApiDocument_Get_DeclaresTheBearerSecurityScheme()
     {
         var response = await Api.GetAsync("/openapi/v1.json");

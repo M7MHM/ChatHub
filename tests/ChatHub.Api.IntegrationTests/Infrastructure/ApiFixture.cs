@@ -25,6 +25,8 @@ public class ApiFixture : IAsyncLifetime
 
     protected virtual string? RedisConnectionString => null;
 
+    protected virtual IReadOnlyDictionary<string, string?> Settings { get; } = new Dictionary<string, string?>();
+
     public virtual async Task InitializeAsync()
     {
         await _container.StartAsync();
@@ -45,11 +47,14 @@ public class ApiFixture : IAsyncLifetime
         }
 
         Directory.CreateDirectory(FilesRoot);
-        _factory = new ChatHubApiFactory(connectionString, FilesRoot, Logs, RedisConnectionString);
+        _factory = CreateFactory();
         _ = _factory.Server;
     }
 
-    public async Task ResetDatabaseAsync()
+    public ChatHubApiFactory CreateFactory() =>
+        new(_container.GetConnectionString(), FilesRoot, Logs, RedisConnectionString, Settings);
+
+    public virtual async Task ResetDatabaseAsync()
     {
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         await connection.OpenAsync();

@@ -2,7 +2,7 @@ using Testcontainers.Redis;
 
 namespace ChatHub.Api.IntegrationTests.Infrastructure;
 
-public sealed class RedisApiFixture : ApiFixture
+public class RedisApiFixture : ApiFixture
 {
     public RedisContainer Redis { get; } = new RedisBuilder("redis:8-alpine").Build();
 

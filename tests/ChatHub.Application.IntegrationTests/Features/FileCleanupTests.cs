@@ -6,6 +6,8 @@ using ChatHub.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace ChatHub.Application.IntegrationTests.Features;
 
@@ -71,6 +73,27 @@ public sealed class FileCleanupTests(DatabaseFixture database) : AppTestBase(dat
 
         result.ShouldBe(new FileCleanupResult(Orphaned: 0, Deleted: 0));
         (await QueryDbAsync(db => db.UploadedFiles.CountAsync(f => f.Id == voice.Id || f.Id == groupImage.Id))).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task RunOnce_TwoInstancesAtTheSameTime_RemoveEachFileExactlyOnceWithoutErrors()
+    {
+        var (yara, _, _) = await CreateUsersAsync();
+        var keys = new List<string>();
+        for (var i = 0; i < 20; i++)
+            keys.Add(await StorageKeyOfAsync((await UploadPngAsync(yara, fileName: $"orphan-{i}.png")).Id));
+        var otherInstance = new FileCleanupService(Services.GetRequiredService<IServiceScopeFactory>(),
+            Services.GetRequiredService<IOptions<FileStorageSettings>>(), Clock, NullLogger<FileCleanupService>.Instance);
+
+        Clock.Advance(FileCleanupService.OrphanAge + TimeSpan.FromHours(1));
+        var results = await Task.WhenAll(
+            Task.Run(() => Cleanup.RunOnceAsync(CancellationToken.None)),
+            Task.Run(() => otherInstance.RunOnceAsync(CancellationToken.None)));
+
+        results.Sum(r => r.Orphaned).ShouldBe(20);
+        results.Sum(r => r.Deleted).ShouldBe(0);
+        keys.ShouldAllBe(key => !File.Exists(Path.Combine(FilesRoot, key)));
+        (await QueryDbAsync(db => db.UploadedFiles.CountAsync())).ShouldBe(0);
     }
 
     private Task<string> StorageKeyOfAsync(Guid fileId) =>

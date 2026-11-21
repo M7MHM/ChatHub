@@ -2,9 +2,9 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace ChatHub.Infrastructure.RealTime;
 
-public class UserConnectionTracker
+public sealed class InMemoryUserConnectionTracker : IUserConnectionTracker
 {
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly Dictionary<Guid, Dictionary<string, HubCallerContext>> _connections = new();
 
     public bool Add(Guid userId, HubCallerContext connection)
@@ -47,9 +47,39 @@ public class UserConnectionTracker
             return _connections.TryGetValue(userId, out var userConnections) ? userConnections.Values.ToList() : [];
     }
 
+    public IReadOnlyList<(Guid UserId, HubCallerContext Connection)> GetAll()
+    {
+        lock (_lock)
+            return _connections.SelectMany(user => user.Value.Values.Select(connection => (user.Key, connection))).ToList();
+    }
+
     public bool IsOnline(Guid userId)
     {
         lock (_lock)
             return _connections.ContainsKey(userId);
+    }
+
+    public void Abort(Guid userId)
+    {
+        foreach (var connection in GetConnectionContexts(userId))
+            connection.Abort();
+    }
+
+    public Task<bool> AddAsync(Guid userId, HubCallerContext connection, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Add(userId, connection));
+
+    public Task<bool> RemoveAsync(Guid userId, string connectionId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Remove(userId, connectionId));
+
+    public Task<bool> IsOnlineAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(IsOnline(userId));
+
+    public Task<IReadOnlyList<string>> GetConnectionIdsAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(GetConnections(userId));
+
+    public Task DisconnectAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        Abort(userId);
+        return Task.CompletedTask;
     }
 }

@@ -10,6 +10,7 @@ using ChatHub.Infrastructure.RealTime;
 using ChatHub.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.StackExchangeRedis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Configuration;
@@ -30,12 +31,13 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.TryAddSingleton(TimeProvider.System);
+        var redis = RedisConfiguration(configuration);
 
-        services.AddCaching(configuration);
+        services.AddCaching(redis);
         services.AddPersistence(configuration);
         services.AddSecurity(configuration);
         services.AddFileStorage(configuration);
-        services.AddRealTime();
+        services.AddRealTime(configuration, redis);
 
         return services;
     }
@@ -60,11 +62,11 @@ public static class DependencyInjection
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
     }
 
-    private static void AddCaching(this IServiceCollection services, IConfiguration configuration)
+    private static void AddCaching(this IServiceCollection services, ConfigurationOptions? redis)
     {
         services.AddHybridCache(options => options.DefaultEntryOptions = CacheKeys.DefaultEntryOptions);
 
-        if (RedisConfiguration(configuration) is not { } redis) return;
+        if (redis is null) return;
 
         services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
         services.AddStackExchangeRedisCache(options => options.InstanceName = RedisInstanceName);
@@ -81,6 +83,7 @@ public static class DependencyInjection
         var options = ConfigurationOptions.Parse(connectionString);
         options.AbortOnConnectFail = false;
         options.BacklogPolicy = BacklogPolicy.FailFast;
+        options.ChannelPrefix = RedisChannel.Literal(RedisInstanceName);
         return options;
     }
 
@@ -154,16 +157,38 @@ public static class DependencyInjection
         services.AddHostedService<FileCleanupService>();
     }
 
-    private static void AddRealTime(this IServiceCollection services)
+    private static void AddRealTime(this IServiceCollection services, IConfiguration configuration, ConfigurationOptions? redis)
     {
-        services.AddSignalR().AddJsonProtocol(options =>
+        var signalR = services.AddSignalR().AddJsonProtocol(options =>
         {
             options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
             options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
 
         services.AddSingleton<IUserIdProvider, SubClaimUserIdProvider>();
-        services.AddSingleton<UserConnectionTracker>();
+        services.AddSingleton(ServerInstance.Create());
+        services.AddSingleton<PresenceSynchronizer>();
         services.AddScoped<ISignalRService, SignalRService>();
+
+        if (redis is null)
+        {
+            services.AddSingleton<IUserConnectionTracker, InMemoryUserConnectionTracker>();
+            return;
+        }
+
+        signalR.AddStackExchangeRedis();
+        services.AddOptions<RedisOptions>()
+            .Configure<IConnectionMultiplexer>((options, multiplexer) =>
+                options.ConnectionFactory = _ => Task.FromResult(multiplexer));
+
+        services.AddOptions<RealTimeSettings>()
+            .Bind(configuration.GetSection(RealTimeSettings.SectionName))
+            .Validate(s => s.HeartbeatIntervalSeconds > 0 && s.InstanceTimeoutSeconds >= 2 * s.HeartbeatIntervalSeconds,
+                "RealTime requires a HeartbeatIntervalSeconds greater than zero and an InstanceTimeoutSeconds of at least twice that.")
+            .ValidateOnStart();
+
+        services.AddSingleton<RedisUserConnectionTracker>();
+        services.AddSingleton<IUserConnectionTracker>(sp => sp.GetRequiredService<RedisUserConnectionTracker>());
+        services.AddHostedService<RedisPresenceMaintenance>();
     }
 }

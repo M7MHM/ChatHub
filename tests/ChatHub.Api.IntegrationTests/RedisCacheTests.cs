@@ -39,6 +39,9 @@ public sealed class RedisCacheTests(RedisApiFixture fixture) : ApiTestBase(fixtu
 public sealed class RedisOutageTests(RedisApiFixture fixture) : ApiTestBase(fixture)
 {
     private const string HybridCacheCategory = "Microsoft.Extensions.Caching.Hybrid.HybridCache";
+    private const string BackplaneCategory = "Microsoft.AspNetCore.SignalR.StackExchangeRedis.RedisHubLifetimeManager";
+    private const string TrackerCategory = "ChatHub.Infrastructure.RealTime.RedisUserConnectionTracker";
+    private const string DisconnectNotBroadcast = "Could not broadcast the disconnect";
 
     [Fact]
     public async Task RedisStopped_ApiServesFromTheDatabaseRejectsRevokedTokensAndReportsDegraded()
@@ -64,7 +67,10 @@ public sealed class RedisOutageTests(RedisApiFixture fixture) : ApiTestBase(fixt
         ready.Text.ShouldBe("Degraded");
 
         var errors = TakeLoggedErrors();
-        errors.ShouldNotBeEmpty();
-        errors.ShouldAllBe(e => e.Category == HybridCacheCategory && e.Message.StartsWith("Cache backend"));
+        errors.ShouldContain(e => e.Category == HybridCacheCategory);
+        errors.ShouldContain(e => e.Category == TrackerCategory && e.Message.StartsWith(DisconnectNotBroadcast));
+        errors.ShouldAllBe(e => (e.Category == HybridCacheCategory && e.Message.StartsWith("Cache backend")) ||
+                                (e.Category == TrackerCategory && e.Message.StartsWith(DisconnectNotBroadcast)) ||
+                                e.Category == BackplaneCategory);
     }
 }

@@ -1,11 +1,5 @@
-using System.Text;
 using ChatHub.Api.IntegrationTests.Infrastructure;
-using ChatHub.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
 
 namespace ChatHub.Api.IntegrationTests;
 
@@ -74,17 +68,5 @@ public sealed class AuthenticationTests(ApiFixture fixture) : ApiTestBase(fixtur
         response.Status.ShouldBe(200);
     }
 
-    private string Forge(Dictionary<string, object> claims)
-    {
-        var settings = Fixture.Services.GetRequiredService<IOptions<JwtSettings>>().Value;
-        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
-        {
-            Issuer = settings.Issuer,
-            Audience = settings.Audience,
-            Expires = DateTime.UtcNow.AddMinutes(5),
-            Claims = claims,
-            SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(settings.Secret)), SecurityAlgorithms.HmacSha256)
-        });
-    }
+    private string Forge(Dictionary<string, object> claims) => ForgeToken(claims, TimeSpan.FromMinutes(5));
 }

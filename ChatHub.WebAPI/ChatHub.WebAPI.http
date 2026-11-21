@@ -1,4 +1,5 @@
 @baseUrl = http://localhost:5285
+# docker compose (two replicas behind nginx): @baseUrl = http://localhost:8080
 @accessToken = {{login.response.body.$.accessToken}}
 @refreshToken = {{login.response.body.$.refreshToken}}
 @userId = {{registerBob.response.body.$.user.id}}
@@ -9,6 +10,21 @@
 
 # Run the requests top to bottom: later requests use ids and tokens from earlier responses.
 # Real-time: connect a SignalR client to {{baseUrl}}/hubs/chat?access_token={{accessToken}}
+#
+# Behind nginx there are no sticky sessions, so a negotiate request and the connection that follows can land on
+# different replicas. Clients must skip negotiation and use WebSockets only:
+#   JavaScript: new HubConnectionBuilder().withUrl(`${baseUrl}/hubs/chat`, {
+#                 transport: HttpTransportType.WebSockets, skipNegotiation: true, accessTokenFactory: () => token })
+#   .NET:       .WithUrl($"{baseUrl}/hubs/chat", o => { o.Transports = HttpTransportType.WebSockets;
+#                 o.SkipNegotiation = true; o.AccessTokenProvider = () => Task.FromResult(token); })
+# Every response carries X-Instance-Id under docker compose, showing which replica served it.
+#
+# The server closes a hub connection when its access token expires (15 minutes), so a revoked or deleted account
+# cannot keep a socket open longer than that. Clients must reconnect with a fresh token: enable automatic reconnect
+# and make the token factory return a current access token, refreshing it first when it has expired:
+#   JavaScript: .withUrl(url, { ..., accessTokenFactory: () => getFreshAccessToken() }).withAutomaticReconnect()
+#   .NET:       o.AccessTokenProvider = GetFreshAccessTokenAsync; builder.WithAutomaticReconnect()
+# If automatic reconnect gives up (onclose), start the connection again after refreshing the token.
 
 ### Health
 GET {{baseUrl}}/health

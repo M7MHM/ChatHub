@@ -53,6 +53,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+app.UseInstanceIdHeader();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
@@ -75,6 +76,7 @@ var readiness = new HealthCheckOptions { Predicate = check => check.Tags.Contain
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", readiness).AllowAnonymous();
 app.MapHealthChecks("/health", readiness).AllowAnonymous();
-app.MapHub<ChatHub.Infrastructure.RealTime.Hubs.ChatHub>(ChatHub.Infrastructure.DependencyInjection.ChatHubPath);
+app.MapHub<ChatHub.Infrastructure.RealTime.Hubs.ChatHub>(ChatHub.Infrastructure.DependencyInjection.ChatHubPath,
+    options => options.CloseOnAuthenticationExpiration = true);
 
 app.Run();

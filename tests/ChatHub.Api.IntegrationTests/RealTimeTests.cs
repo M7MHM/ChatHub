@@ -3,6 +3,7 @@ using ChatHub.Api.IntegrationTests.Infrastructure;
 using ChatHub.Application.Common.RealTime;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChatHub.Api.IntegrationTests;
 
@@ -275,6 +276,24 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
         deleted.Status.ShouldBe(204);
         (await hub.WaitForCloseAsync(CloseTimeout)).ShouldBeTrue();
         hub.State.ShouldBe(HubConnectionState.Disconnected);
+    }
+
+    [Fact]
+    public async Task Hub_AccessTokenExpires_ServerClosesTheConnection()
+    {
+        var dora = await RegisterAsync("Dora");
+        var bob = await RegisterAsync("Bob");
+        var stamp = await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == dora.Id).Select(u => u.SecurityStamp).FirstAsync());
+        var shortLived = ForgeToken(new Dictionary<string, object> { ["sub"] = dora.Id.ToString(), ["sstamp"] = stamp.ToString() },
+            TimeSpan.FromSeconds(3));
+        var doraHub = await ConnectHubAsync(dora.Id, shortLived);
+        var bobHub = await ConnectHubAsync(bob);
+        doraHub.State.ShouldBe(HubConnectionState.Connected);
+
+        (await doraHub.WaitForCloseAsync(TimeSpan.FromSeconds(15))).ShouldBeTrue();
+
+        doraHub.State.ShouldBe(HubConnectionState.Disconnected);
+        bobHub.State.ShouldBe(HubConnectionState.Connected);
     }
 
     private async Task<(TestUser Alice, TestUser Bob, Guid DirectId, HubClient BobHub)> CreateChatWithBobListeningAsync()

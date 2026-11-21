@@ -5,13 +5,14 @@ using ChatHub.Infrastructure.RealTime;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using ChatHubEndpoint = ChatHub.Infrastructure.RealTime.Hubs.ChatHub;
 
 namespace ChatHub.Application.IntegrationTests.Features;
 
 public sealed class ChatHubTests(DatabaseFixture database) : AppTestBase(database)
 {
-    private readonly UserConnectionTracker _tracker = new();
+    private readonly InMemoryUserConnectionTracker _tracker = new();
 
     [Fact]
     public async Task OnConnected_ActiveUser_IsTrackedAndJoinsEachConversationGroup()
@@ -54,7 +55,8 @@ public sealed class ChatHubTests(DatabaseFixture database) : AppTestBase(databas
         _tracker.Add(yara, yaraTab1);
         _tracker.Add(yara, yaraTab2);
         _tracker.Add(zane, zaneTab);
-        var service = new SignalRService(Services.GetRequiredService<IHubContext<ChatHubEndpoint>>(), _tracker);
+        var service = new SignalRService(Services.GetRequiredService<IHubContext<ChatHubEndpoint>>(), _tracker,
+            NullLogger<SignalRService>.Instance);
 
         await service.DisconnectUserAsync(yara);
 
@@ -67,8 +69,10 @@ public sealed class ChatHubTests(DatabaseFixture database) : AppTestBase(databas
     {
         await using var scope = Services.CreateAsyncScope();
         var context = new FakeHubCallerContext(userId);
-        using var hub = new ChatHubEndpoint(_tracker, scope.ServiceProvider.GetRequiredService<IApplicationDbContext>(),
-            scope.ServiceProvider.GetRequiredService<HybridCache>(), scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>())
+        var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        using var hub = new ChatHubEndpoint(_tracker, new PresenceSynchronizer(scopeFactory, _tracker),
+            scope.ServiceProvider.GetRequiredService<IApplicationDbContext>(),
+            scope.ServiceProvider.GetRequiredService<HybridCache>(), scopeFactory)
         {
             Context = context,
             Groups = groups

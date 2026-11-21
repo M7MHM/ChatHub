@@ -22,13 +22,14 @@ public sealed class HubClient : IAsyncDisposable
     private readonly ConcurrentQueue<HubEvent> _events = new();
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public HubClient(TestServer server, string? accessToken)
+    public HubClient(TestServer server, string? accessToken, bool skipNegotiation = false)
     {
         var path = accessToken is null ? "hubs/chat" : $"hubs/chat?access_token={Uri.EscapeDataString(accessToken)}";
         Connection = new HubConnectionBuilder()
             .WithUrl(new Uri(server.BaseAddress, path), options =>
             {
                 options.Transports = HttpTransportType.WebSockets;
+                options.SkipNegotiation = skipNegotiation;
                 options.HttpMessageHandlerFactory = _ => server.CreateHandler();
                 options.WebSocketFactory = async (context, cancellationToken) =>
                     await server.CreateWebSocketClient().ConnectAsync(context.Uri, cancellationToken);

@@ -11,8 +11,12 @@ using Microsoft.Extensions.DependencyInjection;
 namespace ChatHub.Infrastructure.RealTime.Hubs;
 
 [Authorize]
-public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, HybridCache cache, IServiceScopeFactory scopeFactory)
-    : Hub
+public class ChatHub(
+    IUserConnectionTracker tracker,
+    PresenceSynchronizer presence,
+    IApplicationDbContext db,
+    HybridCache cache,
+    IServiceScopeFactory scopeFactory) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -27,7 +31,7 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, Hy
             return;
         }
 
-        var isFirstConnection = tracker.Add(userId, Context);
+        var isFirstConnection = await tracker.AddAsync(userId, Context, Context.ConnectionAborted);
         try
         {
             var conversationIds = await db.ConversationMembers
@@ -40,11 +44,12 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, Hy
                 await Groups.AddToGroupAsync(Context.ConnectionId, ConversationGroups.Name(conversationId), Context.ConnectionAborted);
 
             if (isFirstConnection)
-                await SetPresenceAsync(userId, isOnline: true, Context.ConnectionAborted);
+                await presence.SyncAsync(userId, CancellationToken.None);
         }
         catch
         {
-            tracker.Remove(userId, Context.ConnectionId);
+            if (await tracker.RemoveAsync(userId, Context.ConnectionId, CancellationToken.None))
+                await presence.SyncAsync(userId, CancellationToken.None);
             throw;
         }
 
@@ -53,8 +58,8 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, Hy
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (Context.User.GetUserId() is { } userId && tracker.Remove(userId, Context.ConnectionId))
-            await SetPresenceAsync(userId, isOnline: false, CancellationToken.None);
+        if (Context.User.GetUserId() is { } userId && await tracker.RemoveAsync(userId, Context.ConnectionId, CancellationToken.None))
+            await presence.SyncAsync(userId, CancellationToken.None);
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -89,16 +94,4 @@ public class ChatHub(UserConnectionTracker tracker, IApplicationDbContext db, Hy
 
     private Guid GetRequiredUserId() =>
         Context.User.GetUserId() ?? throw new HubException("The access token does not contain a valid user id.");
-
-    private async Task SetPresenceAsync(Guid userId, bool isOnline, CancellationToken cancellationToken)
-    {
-        var user = await db.UserProfiles.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
-
-        if (user is null || tracker.IsOnline(userId) != isOnline) return;
-
-        if (isOnline) user.GoOnline();
-        else user.GoOffline();
-
-        await db.SaveChangesAsync(cancellationToken);
-    }
 }

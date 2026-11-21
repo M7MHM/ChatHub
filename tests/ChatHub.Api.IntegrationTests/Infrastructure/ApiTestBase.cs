@@ -1,10 +1,15 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
+using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Infrastructure.RealTime;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace ChatHub.Api.IntegrationTests.Infrastructure;
 
@@ -34,8 +39,12 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
         Fixture.Logs.Since(_logMark).ShouldBeEmpty("the API logged unexpected errors during the test");
     }
 
-    protected ApiClient NewClient(string? address = null) =>
-        new(Fixture.Factory.CreateDefaultClient(new ClientAddressHandler(address ?? ClientAddressHandler.NextAddress())));
+    private IUserConnectionTracker Tracker => Fixture.Services.GetRequiredService<IUserConnectionTracker>();
+
+    protected ApiClient NewClient(string? address = null) => NewClient(Fixture.Factory, address);
+
+    protected static ApiClient NewClient(ChatHubApiFactory factory, string? address = null) =>
+        new(factory.CreateDefaultClient(new ClientAddressHandler(address ?? ClientAddressHandler.NextAddress())));
 
     protected IReadOnlyList<LogEntry> TakeLoggedErrors()
     {
@@ -90,11 +99,15 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
 
     protected async Task<HubClient> ConnectHubAsync(TestUser user) => await ConnectHubAsync(user.Id, user.Token);
 
-    protected async Task<HubClient> ConnectHubAsync(Guid userId, string accessToken)
+    protected Task<HubClient> ConnectHubAsync(Guid userId, string accessToken) =>
+        ConnectHubAsync(Fixture.Server, userId, accessToken);
+
+    protected async Task<HubClient> ConnectHubAsync(TestServer server, Guid userId, string accessToken, bool skipNegotiation = false)
     {
-        var hub = Track(new HubClient(Fixture.Server, accessToken), userId);
+        var existing = (await Tracker.GetConnectionIdsAsync(userId)).ToHashSet();
+        var hub = Track(new HubClient(server, accessToken, skipNegotiation), userId);
         await hub.StartAsync();
-        await WaitUntilConnectedOnServerAsync(userId);
+        await WaitUntilConnectedOnServerAsync(userId, existing);
         return hub;
     }
 
@@ -102,6 +115,20 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
     {
         var userId = accessToken is null ? (Guid?)null : Guid.Parse(new JsonWebToken(accessToken).Subject);
         return Track(new HubClient(Fixture.Server, accessToken), userId);
+    }
+
+    protected string ForgeToken(IDictionary<string, object> claims, TimeSpan lifetime)
+    {
+        var settings = Fixture.Services.GetRequiredService<IOptions<JwtSettings>>().Value;
+        return new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = settings.Issuer,
+            Audience = settings.Audience,
+            Expires = DateTime.UtcNow + lifetime,
+            Claims = claims,
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(settings.Secret)), SecurityAlgorithms.HmacSha256)
+        });
     }
 
     protected async Task<T> QueryDbAsync<T>(Func<ApplicationDbContext, Task<T>> query)
@@ -124,12 +151,12 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
         return hub;
     }
 
-    private async Task WaitUntilConnectedOnServerAsync(Guid userId)
+    private async Task WaitUntilConnectedOnServerAsync(Guid userId, IReadOnlySet<string> existingConnections)
     {
-        var tracker = Fixture.Services.GetRequiredService<UserConnectionTracker>();
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline &&
-               !(tracker.IsOnline(userId) && await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => u.Id == userId && u.IsOnline))))
+               !((await Tracker.GetConnectionIdsAsync(userId)).Any(id => !existingConnections.Contains(id)) &&
+                 await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => u.Id == userId && u.IsOnline))))
             await Task.Delay(20);
     }
 
@@ -137,15 +164,22 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
     {
         if (_hubUsers.Count == 0) return;
 
-        var tracker = Fixture.Services.GetRequiredService<UserConnectionTracker>();
         var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (_hubUsers.Any(tracker.IsOnline) && DateTime.UtcNow < deadline)
+        while (DateTime.UtcNow < deadline && await AnyHubUserTrackedAsync())
             await Task.Delay(20);
 
         var users = _hubUsers.ToList();
         while (DateTime.UtcNow < deadline &&
                await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => users.Contains(u.Id) && u.IsOnline)))
             await Task.Delay(20);
+    }
+
+    private async Task<bool> AnyHubUserTrackedAsync()
+    {
+        foreach (var userId in _hubUsers)
+            if (await Tracker.IsOnlineAsync(userId))
+                return true;
+        return false;
     }
 }
 

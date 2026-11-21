@@ -10,7 +10,9 @@ dotnet test ChatHub.slnx
 
 Docker must be running: each integration project starts its own `postgres:17` container with Testcontainers, applies the real EF Core migrations, and resets the data with Respawn before every test. Uploaded files go to a per-run folder under the system temp directory, which is deleted at the end of the run. Nothing depends on a local database or a fixed path.
 
-The existing suites run without Redis (HybridCache is L1-only). `RedisCacheTests` and `RedisOutageTests` each get their own collection and fixture (`RedisApiFixture`: a `postgres:17` and a `redis:8-alpine` container), so stopping Redis in the outage test cannot affect any other test. `ApiFixture.ResetDatabaseAsync` also clears the whole cache, because Respawn deletes rows behind EF's back and the invalidation interceptor never sees those deletes.
+The existing suites run without Redis (HybridCache is L1-only, the connection tracker is in-memory, no SignalR backplane). `RedisCacheTests` and `RedisOutageTests` each get their own collection and fixture (`RedisApiFixture`: a `postgres:17` and a `redis:8-alpine` container), so stopping Redis in the outage test cannot affect any other test. `ApiFixture.ResetDatabaseAsync` also clears the whole cache, because Respawn deletes rows behind EF's back and the invalidation interceptor never sees those deletes.
+
+`MultiInstanceTests` use `MultiInstanceFixture`: two `WebApplicationFactory` hosts sharing one `postgres:17` and one `redis:8-alpine` container, so they run with the SignalR Redis backplane and the Redis connection tracker, as replicas do behind nginx. Their hub clients connect with WebSockets and `SkipNegotiation`, which is what clients must do without sticky sessions. The hosts send a heartbeat every second so the crash test doesn't wait long, and the reset clears the L1 cache of both hosts.
 
 To run one project or one class:
 
@@ -24,9 +26,9 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
 | ChatHub.Domain.UnitTests | 154 | 189 |
-| ChatHub.Application.IntegrationTests | 231 | 240 |
-| ChatHub.Api.IntegrationTests | 141 | 144 |
-| **Total** | **526** | **573** |
+| ChatHub.Application.IntegrationTests | 232 | 241 |
+| ChatHub.Api.IntegrationTests | 156 | 160 |
+| **Total** | **542** | **590** |
 
 ## What changed in the port
 
@@ -56,6 +58,31 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | `UploadedFileTests` | 7 |
 | `UserBlockTests` | 3 |
 | `UserProfileTests` | 22 |
+
+## Horizontal scaling
+
+Tests added with the multi-instance setup (nginx, two API replicas, Redis backplane and connection tracking). None of them replace a harness check.
+
+| Test | What it proves |
+|---|---|
+| Api.IntegrationTests:<br>`MultiInstanceTests.InstanceIdHeader_Enabled_EachHostReportsItsOwnInstance` | With `Diagnostics:ExposeInstanceId`, each host answers with its own `X-Instance-Id`. |
+| Api.IntegrationTests:<br>`InfrastructureEndpointTests.InstanceIdHeader_ByDefault_IsNotSent` | The header is off by default. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.SendMessage_ViaHost1_RecipientConnectedToHost2ReceivesMessageReceived` | `Clients.Group` reaches a connection on the other host. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.CreateDirect_ViaHost1_OtherUserConnectedToHost2ReceivesConversationCreated` | `Clients.User` reaches a connection on the other host. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.Typing_OnHost1_PeerConnectedToHost2ReceivesUserTyping` | `OthersInGroup` reaches the other host and still skips the sender. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.Presence_UserConnectsAndDisconnectsOnHost1_PeerOnHost2SeesOnlineThenOffline` | `Clients.Users` presence events cross hosts. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.Presence_UserConnectedToBothHosts_GoesOfflineOnlyAfterTheLastConnectionCloses` | "Last connection" is decided across hosts, not per host. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.Presence_UserConnectsToBothHostsAtOnce_GoesOnlineExactlyOnce` | Simultaneous connects and disconnects on two hosts produce exactly one online and one offline event. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.AddMember_ViaHost1_MemberConnectedToHost2JoinsTheGroupAndReceivesItsMessages` | The backplane forwards a group add for a connection owned by the other host. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.KickMember_ViaHost1_MemberConnectedToHost2StopsReceivingTheGroupsMessages` | ...and a group removal. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.CredentialChange_ViaHost1_ClosesTheUsersConnectionOnHost2` | `DisconnectUserAsync` aborts connections on every host. Theory, 2 cases (DeleteMyAccount, ChangePassword) |
+| Api.IntegrationTests:<br>`MultiInstanceTests.CrashedInstance_HeartbeatExpires_SweeperRemovesItsConnectionsAndPeersSeeTheUserGoOffline` | A simulated instance whose heartbeat expires is swept: its connections and registration are removed and the user goes offline through `GoOffline`, so peers get `PresenceChanged`. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.GracefulShutdown_HostStops_ItsConnectionsAreRemovedAndPeersSeeTheUserGoOffline` | A third host that shuts down cleanly removes its connections, heartbeat and registration. |
+| Api.IntegrationTests:<br>`MultiInstanceTests.RedisLosesItsData_HostsReRegisterTheirLiveConnectionsAndGroupChangesStillReachThem` | After `FLUSHALL`, each host notices its missing heartbeat, re-registers its live connections, and group changes reach them again. |
+| Api.IntegrationTests:<br>`RealTimeTests.Hub_AccessTokenExpires_ServerClosesTheConnection` | With `CloseOnAuthenticationExpiration`, the server closes a hub connection once its access token expires (a forged 3-second token), while a connection with a valid token stays open. This bounds how long a socket can outlive a revoked token, for example when a disconnect could not be broadcast during a Redis outage. |
+| Application.IntegrationTests:<br>`FileCleanupTests.RunOnce_TwoInstancesAtTheSameTime_RemoveEachFileExactlyOnceWithoutErrors` | Two cleanup services racing over the same database and storage folder remove every file exactly once (the `xmin` row version makes the loser skip the file). |
+
+`RedisOutageTests.RedisStopped_ApiServesFromTheDatabaseRejectsRevokedTokensAndReportsDegraded` now also accepts the SignalR backplane's "Connection to Redis failed" error, and requires the tracker's error that a disconnect could not be broadcast to other instances, because with Redis configured both are expected during an outage.
 
 ## apptest.cs (228 checks)
 

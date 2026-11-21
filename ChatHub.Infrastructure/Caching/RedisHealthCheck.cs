@@ -15,7 +15,8 @@ internal sealed class RedisHealthCheck(IConnectionMultiplexer redis) : IHealthCh
         catch (Exception exception)
         {
             return new HealthCheckResult(context.Registration.FailureStatus,
-                "Redis is unreachable; the API serves from the database.", exception);
+                "Redis is unreachable; the API serves from the database and real-time delivery across instances is down.",
+                exception);
         }
     }
 }

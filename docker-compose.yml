@@ -2,6 +2,12 @@ name: chathub
 
 x-db-connection: &db-connection "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${POSTGRES_USER:?set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Gss Encryption Mode=Disable"
 
+networks:
+  chathub:
+    ipam:
+      config:
+        - subnet: ${CHATHUB_SUBNET:-172.29.0.0/24}
+
 services:
   postgres:
     image: postgres:17
@@ -14,6 +20,7 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - chathub-pgdata:/var/lib/postgresql/data
+    networks: [chathub]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -25,6 +32,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    networks: [chathub]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,6 +44,7 @@ services:
       context: .
       target: migrator
     command: ["--connection", *db-connection]
+    networks: [chathub]
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,6 +60,11 @@ services:
       ConnectionStrings__DefaultConnection: *db-connection
       ConnectionStrings__Redis: redis:6379,abortConnect=false
       Https__RedirectEnabled: "false"
+      ForwardedHeaders__KnownNetworks__0: ${CHATHUB_SUBNET:-172.29.0.0/24}
+      Diagnostics__ExposeInstanceId: "true"
+    deploy:
+      replicas: 2
+    networks: [chathub]
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,9 +74,19 @@ services:
         condition: service_completed_successfully
     volumes:
       - chathub-storage:/app/storage
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "8080:8080"
-    restart: unless-stopped
+    networks: [chathub]
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   chathub-pgdata:
