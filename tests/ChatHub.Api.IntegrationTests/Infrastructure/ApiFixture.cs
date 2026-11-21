@@ -51,8 +51,9 @@ public class ApiFixture : IAsyncLifetime
         _ = _factory.Server;
     }
 
-    public ChatHubApiFactory CreateFactory() =>
-        new(_container.GetConnectionString(), FilesRoot, Logs, RedisConnectionString, Settings);
+    public ChatHubApiFactory CreateFactory(IReadOnlyDictionary<string, string?>? overrides = null) =>
+        new(_container.GetConnectionString(), FilesRoot, Logs, RedisConnectionString,
+            overrides is null ? Settings : new Dictionary<string, string?>(Settings.Concat(overrides)));
 
     public virtual async Task ResetDatabaseAsync()
     {

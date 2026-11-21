@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.StackExchangeRedis;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +27,7 @@ namespace ChatHub.Infrastructure;
 public static class DependencyInjection
 {
     public const string ChatHubPath = "/hubs/chat";
+    public const string CachingEnabledSetting = "Caching:Enabled";
     private const string RedisInstanceName = "chathub:";
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
@@ -33,7 +35,7 @@ public static class DependencyInjection
         services.TryAddSingleton(TimeProvider.System);
         var redis = RedisConfiguration(configuration);
 
-        services.AddCaching(redis);
+        services.AddCaching(configuration, redis);
         services.AddPersistence(configuration);
         services.AddSecurity(configuration);
         services.AddFileStorage(configuration);
@@ -62,13 +64,21 @@ public static class DependencyInjection
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
     }
 
-    private static void AddCaching(this IServiceCollection services, ConfigurationOptions? redis)
+    private static void AddCaching(this IServiceCollection services, IConfiguration configuration, ConfigurationOptions? redis)
     {
+        if (redis is not null)
+            services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
+
+        if (!configuration.GetValue(CachingEnabledSetting, true))
+        {
+            services.AddSingleton<HybridCache, PassThroughHybridCache>();
+            return;
+        }
+
         services.AddHybridCache(options => options.DefaultEntryOptions = CacheKeys.DefaultEntryOptions);
 
         if (redis is null) return;
 
-        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
         services.AddStackExchangeRedisCache(options => options.InstanceName = RedisInstanceName);
         services.AddOptions<RedisCacheOptions>()
             .Configure<IServiceProvider>((options, provider) => options.ConnectionMultiplexerFactory =

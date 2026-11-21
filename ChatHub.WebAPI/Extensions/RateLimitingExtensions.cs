@@ -12,15 +12,24 @@ public static class RateLimitPolicies
 
 public static class RateLimitingExtensions
 {
+    public const string SectionName = "RateLimiting";
+    public const int DefaultAuthStrictPermitLimit = 10;
+    public const int DefaultAuthSessionPermitLimit = 60;
+
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
-    public static IServiceCollection AddApiRateLimiting(this IServiceCollection services) =>
-        services.AddRateLimiter(options =>
+    public static IServiceCollection AddApiRateLimiting(this IServiceCollection services, IConfiguration configuration)
+    {
+        var section = configuration.GetSection(SectionName);
+        var authStrict = PermitLimit(section, "AuthStrictPermitLimit", DefaultAuthStrictPermitLimit);
+        var authSession = PermitLimit(section, "AuthSessionPermitLimit", DefaultAuthSessionPermitLimit);
+
+        return services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-            options.AddFixedWindowPerIp(RateLimitPolicies.AuthStrict, permitLimit: 10);
-            options.AddFixedWindowPerIp(RateLimitPolicies.AuthSession, permitLimit: 60);
+            options.AddFixedWindowPerIp(RateLimitPolicies.AuthStrict, authStrict);
+            options.AddFixedWindowPerIp(RateLimitPolicies.AuthSession, authSession);
 
             options.OnRejected = async (context, _) =>
             {
@@ -41,6 +50,13 @@ public static class RateLimitingExtensions
                     });
             };
         });
+    }
+
+    private static int PermitLimit(IConfigurationSection section, string key, int defaultValue)
+    {
+        var value = section.GetValue(key, defaultValue);
+        return value > 0 ? value : throw new InvalidOperationException($"{SectionName}:{key} must be greater than zero.");
+    }
 
     private static void AddFixedWindowPerIp(this RateLimiterOptions options, string policyName, int permitLimit) =>
         options.AddPolicy(policyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(

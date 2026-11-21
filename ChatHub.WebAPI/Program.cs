@@ -35,7 +35,7 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
     context.ProblemDetails.Extensions.TryAdd("traceId", Activity.Current?.Id ?? context.HttpContext.TraceIdentifier));
 
 builder.Services.AddTrustedForwardedHeaders(builder.Configuration);
-builder.Services.AddApiRateLimiting();
+builder.Services.AddApiRateLimiting(builder.Configuration);
 
 const string readyTag = "ready";
 builder.Services.AddHealthChecks()

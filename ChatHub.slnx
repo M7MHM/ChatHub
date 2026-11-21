@@ -6,6 +6,9 @@
     <Project Path="tests/ChatHub.Application.IntegrationTests/ChatHub.Application.IntegrationTests.csproj" />
     <Project Path="tests/ChatHub.Domain.UnitTests/ChatHub.Domain.UnitTests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/ChatHub.Seeder/ChatHub.Seeder.csproj" />
+  </Folder>
   <Project Path="ChatHub.Application/ChatHub.Application.csproj" />
   <Project Path="ChatHub.Domain/ChatHub.Domain.csproj" />
   <Project Path="ChatHub.Infrastructure/ChatHub.Infrastructure.csproj" />

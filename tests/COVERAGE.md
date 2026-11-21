@@ -14,6 +14,8 @@ The existing suites run without Redis (HybridCache is L1-only, the connection tr
 
 `MultiInstanceTests` use `MultiInstanceFixture`: two `WebApplicationFactory` hosts sharing one `postgres:17` and one `redis:8-alpine` container, so they run with the SignalR Redis backplane and the Redis connection tracker, as replicas do behind nginx. Their hub clients connect with WebSockets and `SkipNegotiation`, which is what clients must do without sticky sessions. The hosts send a heartbeat every second so the crash test doesn't wait long, and the reset clears the L1 cache of both hosts.
 
+`Application.IntegrationTests` references `tools/ChatHub.Seeder` so `SeederTests` run the real seeder against the shared Testcontainers database.
+
 To run one project or one class:
 
 ```bash
@@ -26,9 +28,9 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
 | ChatHub.Domain.UnitTests | 154 | 189 |
-| ChatHub.Application.IntegrationTests | 232 | 241 |
-| ChatHub.Api.IntegrationTests | 156 | 160 |
-| **Total** | **542** | **590** |
+| ChatHub.Application.IntegrationTests | 239 | 248 |
+| ChatHub.Api.IntegrationTests | 158 | 162 |
+| **Total** | **551** | **599** |
 
 ## What changed in the port
 
@@ -83,6 +85,22 @@ Tests added with the multi-instance setup (nginx, two API replicas, Redis backpl
 | Application.IntegrationTests:<br>`FileCleanupTests.RunOnce_TwoInstancesAtTheSameTime_RemoveEachFileExactlyOnceWithoutErrors` | Two cleanup services racing over the same database and storage folder remove every file exactly once (the `xmin` row version makes the loser skip the file). |
 
 `RedisOutageTests.RedisStopped_ApiServesFromTheDatabaseRejectsRevokedTokensAndReportsDegraded` now also accepts the SignalR backplane's "Connection to Redis failed" error, and requires the tracker's error that a disconnect could not be broadcast to other instances, because with Redis configured both are expected during an outage.
+
+## Seeder and load-test switches
+
+Tests for the data seeder (`tools/ChatHub.Seeder`) and the switches the load tests use. None of them replace a harness check. The seeder tests seed a small dataset (40 users, 20 direct chats, 5 groups, 600 messages) into the Testcontainers database through `DataSeeder`, the same class the console app runs.
+
+| Test | What it proves |
+|---|---|
+| Application.IntegrationTests:<br>`SeederTests.Seed_SmallDataset_InsertsTheRequestedRows` | Users, direct chats, groups, memberships, messages and blocks match the requested counts exactly. |
+| Application.IntegrationTests:<br>`SeederTests.Seed_Groups_HaveOneOwnerAndOneToThreeAdmins` | Groups built through `CreateGroup`/`AddMember`/`ChangeMemberRole` have exactly one owner and 1–3 admins. |
+| Application.IntegrationTests:<br>`SeederTests.Seed_EveryConversation_PointsAtItsNewestMessage` | After backdating, `LastMessageId` and `LastMessageAtUtc` of every conversation match its newest message (or are null without messages). |
+| Application.IntegrationTests:<br>`SeederTests.Seed_Messages_AreVisibleToMembersAndReadStateVaries` | Every message is newer than every member's `JoinedAtUtc`, messages fall inside the requested window, and some members have read pointers while others don't. |
+| Application.IntegrationTests:<br>`SeederTests.Seed_SeededUsers_CanLogInWithTheSharedPassword` | Users seeded with the once-computed hash sign in through `LoginCommand`. |
+| Application.IntegrationTests:<br>`SeederTests.Seed_SecondRun_InsertsNothing` | A second run reports that it skipped and changes no row count. |
+| Application.IntegrationTests:<br>`SeederTests.Reset_SeedDataAndASharedChat_DeletesOnlySeedDataAndRepairsTheSharedChat` | `--reset` deletes seed users and their data only; a chat shared with a real user survives with that user's message as its last message, and seeding works again afterwards. |
+| Api.IntegrationTests:<br>`RedisCacheTests.CachingDisabled_GetMe_WorksAndNothingIsWrittenToTheCache` | With `Caching:Enabled=false` the API registers `PassThroughHybridCache`: GetMe works, the factory runs on every call, and no key for the user reaches Redis. |
+| Api.IntegrationTests:<br>`RateLimitingTests.Login_WithConfiguredPermitLimits_UsesThemInsteadOfTheDefaults` | `RateLimiting:AuthStrictPermitLimit` and `RateLimiting:AuthSessionPermitLimit` replace the defaults (10 and 60, still covered by the other rate-limiting tests). |
 
 ## apptest.cs (228 checks)
 

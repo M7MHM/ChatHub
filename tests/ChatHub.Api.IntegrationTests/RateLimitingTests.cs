@@ -123,6 +123,23 @@ public sealed class RateLimitingTests(ApiFixture fixture) : ApiTestBase(fixture)
         otherClient.Status.ShouldBe(400);
     }
 
+    [Fact]
+    public async Task Login_WithConfiguredPermitLimits_UsesThemInsteadOfTheDefaults()
+    {
+        await using var host = Fixture.CreateFactory(new Dictionary<string, string?>
+        {
+            ["RateLimiting:AuthStrictPermitLimit"] = "2",
+            ["RateLimiting:AuthSessionPermitLimit"] = "3"
+        });
+        var client = NewClient(host);
+
+        var logins = await RepeatAsync(3, () => LoginNobodyAsync(client));
+        var refreshes = await RepeatAsync(4, () => client.PostAsync("/api/auth/refresh", new { refreshToken = "unknown" }));
+
+        logins.ShouldBe([400, 400, 429]);
+        refreshes.ShouldBe([400, 400, 400, 429]);
+    }
+
     private static Task<ApiResponse> LoginNobodyAsync(ApiClient client) =>
         client.PostAsync("/api/auth/login", new { identifier = "nobody@example.com", password = Password });
 

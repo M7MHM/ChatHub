@@ -33,6 +33,18 @@ RUN case "$TARGETARCH" in \
         --target-runtime "$rid" \
         --output /app/efbundle
 
+FROM build AS seeder-build
+COPY tools/ChatHub.Seeder/ChatHub.Seeder.csproj tools/ChatHub.Seeder/
+RUN dotnet restore tools/ChatHub.Seeder/ChatHub.Seeder.csproj
+COPY tools/ChatHub.Seeder/ tools/ChatHub.Seeder/
+RUN dotnet publish tools/ChatHub.Seeder/ChatHub.Seeder.csproj -c Release --no-restore -o /app/seeder /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS seeder
+WORKDIR /app
+COPY --from=seeder-build /app/seeder .
+USER $APP_UID
+ENTRYPOINT ["dotnet", "ChatHub.Seeder.dll"]
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS migrator
 WORKDIR /app
 COPY --from=bundle /app/efbundle .

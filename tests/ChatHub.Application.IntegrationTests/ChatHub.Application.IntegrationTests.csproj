@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\ChatHub.Infrastructure\ChatHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\tools\ChatHub.Seeder\ChatHub.Seeder.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,7 @@
 using ChatHub.Api.IntegrationTests.Infrastructure;
+using ChatHub.Infrastructure.Caching;
+using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace ChatHub.Api.IntegrationTests;
 
@@ -32,6 +35,33 @@ public sealed class RedisCacheTests(RedisApiFixture fixture) : ApiTestBase(fixtu
         (await fixture.RedisKeysAsync(stampKey)).ShouldBeEmpty();
         (await Api.GetAsync("/api/users/me", alice.Token)).Status.ShouldBe(401);
         (await Api.GetAsync("/api/users/me", changed.Json.S("accessToken"))).Status.ShouldBe(200);
+    }
+
+    [Fact]
+    public async Task CachingDisabled_GetMe_WorksAndNothingIsWrittenToTheCache()
+    {
+        await using var host = fixture.CreateFactory(new Dictionary<string, string?> { ["Caching:Enabled"] = "false" });
+        var api = NewClient(host);
+        var registered = await api.PostAsync("/api/auth/register",
+            new { displayName = "Nora", email = "nora@example.com", password = Password });
+        registered.Status.ShouldBe(201);
+        var token = registered.Json.S("accessToken");
+        var userId = registered.Json.P("user").G("id");
+
+        var first = await api.GetAsync("/api/users/me", token);
+        var second = await api.GetAsync("/api/users/me", token);
+
+        first.Status.ShouldBe(200);
+        second.Json.S("displayName").ShouldBe("Nora");
+        (await fixture.RedisKeysAsync($"chathub:*{userId}*")).ShouldBeEmpty();
+
+        var cache = host.Services.GetRequiredService<HybridCache>();
+        cache.ShouldBeOfType<PassThroughHybridCache>();
+        var factoryCalls = 0;
+        for (var i = 0; i < 2; i++)
+            await cache.GetOrCreateAsync("probe", _ => ValueTask.FromResult(++factoryCalls));
+        factoryCalls.ShouldBe(2);
+        (await fixture.RedisKeysAsync("chathub:probe")).ShouldBeEmpty();
     }
 }
 

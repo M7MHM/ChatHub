@@ -11,6 +11,10 @@
 # Claude Code local settings
 .claude/
 
+# k6 load-test output
+loadtest/results/*
+!loadtest/results/.gitkeep
+
 # User-specific files
 *.rsuser
 *.suo
