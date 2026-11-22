@@ -9,9 +9,13 @@ public sealed record SeedOptions
 
     public const string Usage = """
         Usage: ChatHub.Seeder --confirm [options]
+               ChatHub.Seeder --confirm --backfill-notifications [--connection <string>] [--batch-size <n>]
 
           --confirm              Required. Without it the seeder refuses to touch the database.
           --reset                Delete existing seed data (users @chathub.test and everything that belongs to them) first.
+          --backfill-notifications
+                                 Seed nothing; queue a UserProfileUpdated event in the outbox for every user that is not
+                                 deleted, so the notification service learns about users created before it existed.
           --connection <string>  PostgreSQL connection string (default: ConnectionStrings__DefaultConnection).
           --users <n>            Users (default 1000).
           --directs <n>          Direct chats (default 500).
@@ -27,6 +31,7 @@ public sealed record SeedOptions
 
     public bool Confirm { get; init; }
     public bool Reset { get; init; }
+    public bool BackfillNotifications { get; init; }
     public bool Help { get; init; }
     public string? ConnectionString { get; init; }
     public int Users { get; init; } = 1000;
@@ -57,6 +62,7 @@ public sealed record SeedOptions
             {
                 "--confirm" => options with { Confirm = true },
                 "--reset" => options with { Reset = true },
+                "--backfill-notifications" => options with { BackfillNotifications = true },
                 "--help" or "-h" => options with { Help = true },
                 "--connection" => options with { ConnectionString = Value() },
                 "--users" => options with { Users = Number() },
@@ -79,6 +85,7 @@ public sealed record SeedOptions
 
     public string? Validate()
     {
+        if (BackfillNotifications && Reset) return "--backfill-notifications cannot be combined with --reset.";
         if (Users is < 2 or > 9999) return "--users must be between 2 and 9999.";
         if (DirectChats > (long)Users * (Users - 1) / 2) return "--directs cannot exceed the number of distinct user pairs.";
         if (MinGroupSize < 2 || MinGroupSize > MaxGroupSize) return "--min-group-size must be at least 2 and not above --max-group-size.";

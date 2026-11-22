@@ -27,10 +27,13 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
-| ChatHub.Domain.UnitTests | 154 | 189 |
-| ChatHub.Application.IntegrationTests | 239 | 248 |
-| ChatHub.Api.IntegrationTests | 158 | 162 |
-| **Total** | **551** | **599** |
+| ChatHub.Domain.UnitTests | 157 | 192 |
+| ChatHub.Application.IntegrationTests | 266 | 276 |
+| ChatHub.Api.IntegrationTests | 162 | 166 |
+| ChatHub.Notifications.Tests | 37 | 47 |
+| **Total** | **622** | **681** |
+
+Since the harness port: the transactional outbox and RabbitMQ publisher added 3 domain, 26 application and 4 API test cases (`OutboxTests`, `OutboxPublisherTests`, `MessagingTests`; see [docs/MESSAGING.md](../docs/MESSAGING.md#tests)). The notification service added its own project (47 cases) and 2 backfill tests in `SeederTests` (see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#tests)). The messaging tests also start `rabbitmq:4-management`, and `EmailChannelTests` starts `axllent/mailpit`; each test class or collection that stops a broker has its own container.
 
 ## What changed in the port
 
@@ -45,7 +48,7 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 
 ## Domain invariants added beyond the harnesses
 
-`ChatHub.Domain.UnitTests` has 146 test methods that cover Domain rules the harnesses never exercised:
+`ChatHub.Domain.UnitTests` has 149 test methods that cover Domain rules the harnesses never exercised:
 
 | Class | Added test methods |
 |---|---:|
@@ -59,7 +62,7 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 | `RefreshTokenTests` | 8 |
 | `UploadedFileTests` | 7 |
 | `UserBlockTests` | 3 |
-| `UserProfileTests` | 22 |
+| `UserProfileTests` | 25 |
 
 ## Horizontal scaling
 

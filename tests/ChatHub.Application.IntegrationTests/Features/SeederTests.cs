@@ -1,4 +1,7 @@
+using System.Text.Json;
 using ChatHub.Application.IntegrationTests.Infrastructure;
+using ChatHub.Contracts;
+using UserProfileUpdated = ChatHub.Contracts.Events.UserProfileUpdated;
 using ChatHub.Domain.Enums;
 using ChatHub.Domain.ValueObjects;
 using ChatHub.Infrastructure.Persistence.Data;
@@ -135,6 +138,47 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
         shared.LastMessageId.ShouldBe(fromOlga.Id);
         (await QueryDbAsync(db => db.UserProfiles.SingleAsync())).Id.ShouldBe(olga);
         (await SeedAsync()).Skipped.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task BackfillNotifications_QueuesOneUserProfileUpdatedPerLivingUserInBatches()
+    {
+        var anna = await CreateUserAsync("Anna");
+        var ben = await CreateUserAsync("Ben", phone: "+201001234567");
+        var cleo = await CreateUserAsync("Cleo");
+        var dan = await CreateUserAsync("Dan");
+        var gone = await CreateUserAsync("Gone");
+        await UseDbAsync(async db =>
+        {
+            (await db.UserProfiles.SingleAsync(u => u.Id == gone)).Delete();
+            await db.SaveChangesAsync();
+        });
+
+        BackfillResult result;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            result = await new NotificationBackfill(db, batchSize: 2, TextWriter.Null, Clock).RunAsync();
+
+        (result.Users, result.Batches).ShouldBe((4, 2));
+        var rows = await QueryDbAsync(db => db.OutboxMessages.AsNoTracking().ToListAsync());
+        rows.ShouldAllBe(r => r.Type == nameof(UserProfileUpdated) && r.RoutingKey == MessageRoutes.UserProfileUpdated &&
+                              r.ProcessedAtUtc == null);
+        var events = rows.Select(r => JsonSerializer.Deserialize<UserProfileUpdated>(r.Payload, MessageJson.Options)!).ToList();
+        events.Select(e => (e.UserId, e.Email, e.DisplayName)).ShouldBe(
+        [
+            (anna, "anna@example.com", "Anna"),
+            (ben, null, "Ben"),
+            (cleo, "cleo@example.com", "Cleo"),
+            (dan, "dan@example.com", "Dan")
+        ], ignoreOrder: true);
+        events.ShouldAllBe(e => rows.Any(r => r.Id == e.MessageId));
+    }
+
+    [Fact]
+    public void BackfillNotifications_CannotBeCombinedWithReset()
+    {
+        SeedOptions.Parse(["--confirm", "--backfill-notifications"]).BackfillNotifications.ShouldBeTrue();
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--backfill-notifications", "--reset"]))
+            .Message.ShouldContain("cannot be combined with --reset");
     }
 
     private async Task<SeedResult> SeedAsync()

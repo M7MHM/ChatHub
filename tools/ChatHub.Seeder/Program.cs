@@ -35,6 +35,22 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 var target = new NpgsqlConnectionStringBuilder(connectionString);
+if (options.BackfillNotifications)
+{
+    Console.WriteLine($"Backfilling notification recipients from database '{target.Database}' on {target.Host}:{target.Port}.");
+    try
+    {
+        await using var db = ApplicationDbContextFactory.Create(connectionString);
+        await new NotificationBackfill(db, options.BatchSize, Console.Out).RunAsync();
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"Backfill failed: {exception}");
+        return 1;
+    }
+}
+
 Console.WriteLine($"Seeding database '{target.Database}' on {target.Host}:{target.Port} (random seed {options.RandomSeed}).");
 
 try

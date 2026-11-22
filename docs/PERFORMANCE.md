@@ -378,6 +378,31 @@ Transactional outbox + RabbitMQ publisher ([MESSAGING.md](MESSAGING.md)). 2 repl
 
 0 errors and all thresholds passed in every run. 3,262 events were published exactly once, none retried; publish lag p50 417 ms, p95 907 ms (the 1 s poll interval). Per message sent, PostgreSQL does one enrichment query (0.43 ms mean) and one outbox INSERT (0.06 ms); the publisher's claim and update statements are not in the top 10. The send p95 rose 2.3× (22 → 51 ms), just above the ~2× noise band of single runs: likely a real but small cost of the extra query, INSERT and serialization on the send path, not confirmed by repeats. Reads are unchanged within noise. A first messaging run, with `rabbitmq-diagnostics` as the compose health check, measured an all-request p95 of 28.9 ms: every probe started an Erlang VM using up to 2.4 cores for a second or two, every ~12 s. The health check is now a TCP probe and RabbitMQ stays under 5% CPU.
 
+### Notification service impact (2026-11-22)
+
+Same scenario and parameters as the outbox runs above. The [notification service](NOTIFICATIONS.md) ran with production timings (120 s delay, 15 min cooldown) after the backfill, so every seeded recipient is known and has an email address. Single runs.
+
+| p95 (ms) | Control, messaging off | Messaging on (phase 1) | Notifications running | Notifications stopped |
+|---|---|---|---|---|
+| `GET /me` | 3.7 | 3.8 | 34.2 | 3.9 |
+| `GET /conversations` | 18.0 | 24.7 | 47.8 | 17.0 |
+| `GET /…/messages` | 7.2 | 7.8 | 43.2 | 8.3 |
+| `POST /…/messages` | 22.1 | 50.9 | 99.3 | 29.6 |
+| All requests (p99) | 10.6 (41.2) | 14.6 (61.2) | 45.2 (102.3) | 12.9 (41.5) |
+| Realtime delivery p95 | 58 | 63 | 96 | 44 |
+| API / PostgreSQL CPU | 41 / 21.6 | 43–45 / 27.2 | 55–56 / 43.7 | 41–42 / 25.8 |
+| Notifications / Mailpit CPU | – | – | 28.2 (max 162) / 7.5 | stopped / 0.3 |
+
+0 errors, 0 lost realtime messages and all thresholds passed in every run.
+
+- **The API's own messaging cost is small.** With the worker stopped (events queue in RabbitMQ), the send p95 is 1.34× the control. Per send, the API does one enrichment query (0.52 ms) and one outbox INSERT (0.07 ms); the publisher's claims are not in the top 10. The 2.3× of the phase 1 run did not reproduce, so it was most likely run-to-run noise.
+- **The slowdown with the worker running is contention on the shared laptop and PostgreSQL server.** `GET /me` touches neither the outbox nor RabbitMQ, and its p95 went from 3.9 to 34 ms.
+  - During the run the worker consumed 4,202 events. Its fold statement (0.74 ms mean) was the third-largest consumer of database time on the server.
+  - It then sent 2,440 digests covering 51,086 messages, 2,063 of them in one minute, when the warm-up's digests came due. Each email opened its own SMTP connection.
+  - This load test is close to the worst case: every recipient has an email address and nobody reads anything.
+- Every run also shows the API ~20 points busier in the first 40 s of the steady phase than in the rest (warm-up after the replicas are recreated), so differences under ~2× remain noise.
+- Not changed in code. The fixes are operational: give the worker its own CPU (another host, or a CPU limit like the API replicas'). If it must share, rate-limit sends or reuse one SMTP connection per batch; see [NOTIFICATIONS.md](NOTIFICATIONS.md).
+
 ---
 
 # Before: baseline (2026-11-21)

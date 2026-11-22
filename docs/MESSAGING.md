@@ -1,6 +1,6 @@
 # ChatHub messaging: transactional outbox and RabbitMQ
 
-The API publishes **integration events** to RabbitMQ so that other services (first: the notification worker that sends email digests, phase 2) can react to what happens in ChatHub without calling the API or reading its database. Events are written to an **outbox table in the same transaction as the business change** and published by a background service. The contracts live in `ChatHub.Contracts`, a class library with no dependency on the other ChatHub projects, so a consumer can reference it on its own.
+The API publishes **integration events** to RabbitMQ so that other services (today: the [notification service](NOTIFICATIONS.md) that emails digests of unread messages) can react to what happens in ChatHub without calling the API or reading its database. Events are written to an **outbox table in the same transaction as the business change** and published by a background service. The contracts live in `ChatHub.Contracts`, a class library with no dependency on the other ChatHub projects, so a consumer can reference it on its own.
 
 ## Flow
 
@@ -101,12 +101,12 @@ The broker's publisher confirms guarantee that a confirmed persistent message ro
 
 There is no maximum number of attempts and no dead-letter state: an event that keeps failing stays pending with its `LastError` and shows up in the backlog health check.
 
-**Until a consumer exists, every event is unroutable.** The API does not declare queues, so with nothing bound to `chathub.events` each publish is returned and retried (backoff up to 5 minutes), and `/health/ready` turns `Degraded` once the oldest pending event is older than `BacklogAlertMinutes`. Nothing is lost: when the phase 2 worker binds its queue, the backlog drains into it (consumers should therefore expect old events after an outage). To run without RabbitMQ consumers, bind a queue by hand (see [Inspecting messages](#inspecting-messages-in-the-rabbitmq-ui)) or set `MESSAGING_ENABLED=false`.
+**Events need a bound queue.** The API does not declare queues: with nothing bound to `chathub.events`, each publish is returned and retried (backoff up to 5 minutes), and `/health/ready` turns `Degraded` once the oldest pending event is older than `BacklogAlertMinutes`. The notification service declares and binds the durable `chathub.notifications` queue when it starts. After it has started once, events are routable even while it is stopped: they wait in that queue. Before that, nothing is lost either: the backlog drains into the queue as soon as it is bound, so consumers must expect old events after an outage. To run without the notification service, bind a queue by hand (see [Inspecting messages](#inspecting-messages-in-the-rabbitmq-ui)) or set `MESSAGING_ENABLED=false`.
 
 ## Topology
 
 - The API declares only the exchange `chathub.events` (type `topic`, durable, not auto-deleted).
-- Consumers own their queues and bindings. The notification worker (phase 2) is expected to declare a durable (quorum) queue, e.g. `chathub.notifications`, bound to `message.sent`, `conversation.read` and `user.*`, with manual acks, a prefetch limit and its own dead-lettering.
+- Consumers own their queues and bindings. The notification service declares `chathub.notifications` (durable, bound to all five routing keys, manual acks, prefetch), a TTL retry queue and a dead-letter queue behind `chathub.events.dlx`; see [NOTIFICATIONS.md](NOTIFICATIONS.md#rabbitmq-topology). They are classic queues: on this single-node broker a quorum queue adds Raft overhead without adding safety. Switch to quorum queues when RabbitMQ runs as a cluster.
 - Routing keys are `<entity>.<event>`, so `user.*` or `#` bindings work as expected.
 
 ## Configuration
@@ -126,7 +126,7 @@ Section `Messaging` (environment variables `Messaging__<Name>`). When `Enabled` 
 | `CleanupIntervalMinutes` | `60` | How often each replica runs the cleanup (in batches of 5,000, `SKIP LOCKED`) |
 | `BacklogAlertMinutes` | `5` | The outbox health check reports `Degraded` once the oldest pending event is older than this |
 
-docker-compose: the `rabbitmq` service (`rabbitmq:4-management`) has a fixed hostname (RabbitMQ stores its data per node name), the `chathub-rabbitmq` volume, a `check_port_connectivity` health check, and the management UI on `127.0.0.1:15672` only. AMQP (5672) is reachable inside the compose network only. The API waits for it to be healthy. Credentials come from `.env` (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`, default `chathub`/`chathub`) and are applied only when the volume is first created.
+docker-compose: the `rabbitmq` service (`rabbitmq:4-management`) has a fixed hostname (RabbitMQ stores its data per node name), the `chathub-rabbitmq` volume, a TCP health check on the AMQP port, and the management UI on `127.0.0.1:15672` only. The first health check, `rabbitmq-diagnostics`, started an Erlang VM per probe, using up to 2.4 cores each time (see [PERFORMANCE.md](PERFORMANCE.md#outbox-impact-2026-11-22)). AMQP (5672) is reachable inside the compose network only. The API only waits for RabbitMQ to be *started* (`service_started`, not `service_healthy`): the chat starts and works while RabbitMQ is down or unhealthy, and events wait in the outbox. This was checked by stopping RabbitMQ, restarting the API, sending a message (accepted, outbox row pending, readiness `Degraded`) and starting RabbitMQ again: the digest email arrived about 10 s later. Credentials come from `.env` (`RABBITMQ_USER`, `RABBITMQ_PASSWORD`, default `chathub`/`chathub`) and are applied only when the volume is first created.
 
 ## Health
 
@@ -135,7 +135,7 @@ docker-compose: the `rabbitmq` service (`rabbitmq:4-management`) has a fixed hos
 - `rabbitmq`: the publisher's connection and channel are open. The description carries the last connection error.
 - `outbox`: `Degraded` when the oldest pending row is older than `BacklogAlertMinutes`; the description gives the number of pending rows and the age.
 
-`loadtest/run.ps1` waits for `Healthy`, so it needs a bound queue or `MESSAGING_ENABLED=false` while no consumer exists.
+`loadtest/run.ps1` waits for `Healthy`. With the notification service running, its queue keeps the backlog at zero; without it, bind a queue or set `MESSAGING_ENABLED=false`.
 
 ## Inspecting messages in the RabbitMQ UI
 
@@ -159,6 +159,8 @@ FROM "OutboxMessages" WHERE "ProcessedAtUtc" > now() - interval '1 hour' GROUP B
 ```
 
 ## Data and privacy
+
+The notification service keeps its own copy of every user's email address and display name (`Recipients` in `chathub_notifications`), and clears it when it consumes `user.deleted`.
 
 `UserRegistered` and `UserProfileUpdated` contain the email address and display name. Processed rows are deleted after `RetentionDays`; pending rows stay until published. Deleting an account does not remove earlier outbox rows or messages already in consumer queues: consumers must handle `user.deleted` by erasing what they stored about the user.
 
