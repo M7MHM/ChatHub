@@ -43,6 +43,10 @@ Content-Type: application/json
 }
 
 ###
+# Phone numbers: an Egyptian mobile in local form (01001234567), without the 0 (1001234567, what a client with a fixed
+# +20 prefix sends) or international (+201001234567); other countries need the full +<country code> form. Landlines and
+# wrong lengths get 400 "Enter a valid Egyptian mobile number, e.g. 01001234567". Numbers are stored and matched in E.164,
+# so any of these forms finds the same user at register and login. Phones are never verified (no SMS, by design).
 # @name registerBob
 POST {{baseUrl}}/api/auth/register
 Content-Type: application/json
@@ -50,7 +54,7 @@ Content-Type: application/json
 {
   "displayName": "Bob",
   "email": null,
-  "phoneNumber": "+20 100 123 4567",
+  "phoneNumber": "01001234567",
   "password": "secret123"
 }
 

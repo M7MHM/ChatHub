@@ -12,8 +12,10 @@ public sealed class SmtpSettings
     public string FromAddress { get; init; } = "notifications@chathub.local";
     public string FromName { get; init; } = "ChatHub";
     public int TimeoutSeconds { get; init; } = 30;
+    public int IdleTimeoutSeconds { get; init; } = 30;
 
     public TimeSpan Timeout => TimeSpan.FromSeconds(TimeoutSeconds);
+    public TimeSpan IdleTimeout => TimeSpan.FromSeconds(Math.Max(0, IdleTimeoutSeconds));
 }
 
 public enum SmtpSecurity

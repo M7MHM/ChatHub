@@ -1,5 +1,7 @@
+using System.Net.Sockets;
 using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Persistence;
+using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using Microsoft.Extensions.Options;
@@ -7,9 +9,28 @@ using MimeKit;
 
 namespace ChatHub.Notifications.Channels.Email;
 
-public sealed class EmailChannel(IOptions<SmtpSettings> options) : INotificationChannel
+public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
 {
     public const string ChannelName = "email";
+
+    private static readonly TimeSpan QuitTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly SmtpSettings settings;
+    private readonly TimeProvider timeProvider;
+    private readonly ILogger<EmailChannel> logger;
+    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly ITimer idleTimer;
+    private SmtpClient? client;
+    private long lastUsedTimestamp;
+    private bool disposed;
+
+    public EmailChannel(IOptions<SmtpSettings> options, TimeProvider timeProvider, ILogger<EmailChannel> logger)
+    {
+        settings = options.Value;
+        this.timeProvider = timeProvider;
+        this.logger = logger;
+        idleTimer = timeProvider.CreateTimer(_ => _ = CloseIfIdleAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+    }
 
     public string Name => ChannelName;
 
@@ -17,7 +38,61 @@ public sealed class EmailChannel(IOptions<SmtpSettings> options) : INotification
 
     public async Task SendAsync(DigestNotification notification, CancellationToken cancellationToken)
     {
-        var settings = options.Value;
+        var message = BuildMessage(notification);
+
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var reused = client is { IsConnected: true } && !IsIdle();
+            if (!reused) await ConnectAsync(cancellationToken);
+
+            try
+            {
+                await client!.SendAsync(message, cancellationToken);
+            }
+            catch (Exception exception) when (reused && IsConnectionFailure(exception) && !cancellationToken.IsCancellationRequested)
+            {
+                logger.LogInformation(exception, "The reused SMTP connection was dropped; reconnecting.");
+                await ConnectAsync(cancellationToken);
+                await client!.SendAsync(message, cancellationToken);
+            }
+
+            lastUsedTimestamp = timeProvider.GetTimestamp();
+            if (settings.IdleTimeout > TimeSpan.Zero)
+                idleTimer.Change(settings.IdleTimeout, Timeout.InfiniteTimeSpan);
+            else
+                await CloseAsync(quit: true);
+        }
+        catch
+        {
+            await CloseAsync(quit: false);
+            throw;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            if (disposed) return;
+            disposed = true;
+            await idleTimer.DisposeAsync();
+            await CloseAsync(quit: true);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private MimeMessage BuildMessage(DigestNotification notification)
+    {
         var email = DigestEmailTemplate.Render(notification);
 
         var message = new MimeMessage();
@@ -27,14 +102,70 @@ public sealed class EmailChannel(IOptions<SmtpSettings> options) : INotification
         message.Subject = email.Subject;
         message.Headers.Add("X-ChatHub-Conversation", notification.ConversationId.ToString());
         message.Body = new BodyBuilder { TextBody = email.Text, HtmlBody = email.Html }.ToMessageBody();
-
-        using var client = new SmtpClient { Timeout = (int)settings.Timeout.TotalMilliseconds };
-        await client.ConnectAsync(settings.Host, settings.Port, SocketOptions(settings.Security), cancellationToken);
-        if (!string.IsNullOrEmpty(settings.User))
-            await client.AuthenticateAsync(settings.User, settings.Password ?? string.Empty, cancellationToken);
-        await client.SendAsync(message, cancellationToken);
-        await client.DisconnectAsync(true, cancellationToken);
+        return message;
     }
+
+    private async Task ConnectAsync(CancellationToken cancellationToken)
+    {
+        await CloseAsync(quit: false);
+
+        var connecting = new SmtpClient { Timeout = (int)settings.Timeout.TotalMilliseconds };
+        try
+        {
+            await connecting.ConnectAsync(settings.Host, settings.Port, SocketOptions(settings.Security), cancellationToken);
+            if (!string.IsNullOrEmpty(settings.User))
+                await connecting.AuthenticateAsync(settings.User, settings.Password ?? string.Empty, cancellationToken);
+        }
+        catch
+        {
+            connecting.Dispose();
+            throw;
+        }
+
+        client = connecting;
+    }
+
+    private async Task CloseIfIdleAsync()
+    {
+        if (!await gate.WaitAsync(0)) return;
+        try
+        {
+            if (!disposed && client is not null && IsIdle()) await CloseAsync(quit: true);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task CloseAsync(bool quit)
+    {
+        if (client is null) return;
+        var closing = client;
+        client = null;
+
+        try
+        {
+            if (quit && closing.IsConnected)
+            {
+                using var timeout = new CancellationTokenSource(QuitTimeout);
+                await closing.DisconnectAsync(true, timeout.Token);
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Closing the SMTP connection failed.");
+        }
+        finally
+        {
+            closing.Dispose();
+        }
+    }
+
+    private bool IsIdle() => timeProvider.GetElapsedTime(lastUsedTimestamp) >= settings.IdleTimeout;
+
+    private static bool IsConnectionFailure(Exception exception) =>
+        exception is ServiceNotConnectedException or SmtpProtocolException or IOException or SocketException;
 
     private static SecureSocketOptions SocketOptions(SmtpSecurity security) => security switch
     {

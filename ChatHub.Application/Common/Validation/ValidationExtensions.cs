@@ -1,3 +1,4 @@
+using ChatHub.Domain.ValueObjects;
 using FluentValidation;
 
 namespace ChatHub.Application.Common.Validation;
@@ -22,5 +23,5 @@ public static class ValidationExtensions
 
     public static IRuleBuilderOptions<T, string?> ValidPhoneNumber<T>(this IRuleBuilder<T, string?> rule) =>
         rule.Must(v => string.IsNullOrWhiteSpace(v) || ContactParser.TryParsePhoneNumber(v) is not null)
-            .WithMessage("'{PropertyName}' must be in international format, e.g. +201001234567.");
+            .WithMessage(PhoneNumber.InvalidMessage);
 }

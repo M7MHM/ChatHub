@@ -143,6 +143,8 @@ public interface INotificationChannel
 
 Today a failure on any channel retries the whole digest, which could repeat a channel that succeeded. With two channels, move delivery state per channel: a `(UserId, ConversationId, Channel)` key, or a small deliveries table.
 
+**SMTP connection reuse.** `EmailChannel` is a singleton that holds one connected, authenticated `SmtpClient` behind a semaphore instead of connecting, authenticating and quitting for every email. Each send reuses it while it is open and was last used less than `Smtp:IdleTimeoutSeconds` (default 30) ago, so a dispatch batch, and the batches that follow it at the 1 s poll interval, share one TLS handshake and one `AUTH`. A timer (`TimeProvider`) sends `QUIT` once the connection has been idle that long, which stays under the idle limits relays enforce, and the host sends `QUIT` on shutdown. If a send on a reused connection fails because the server dropped it (`IOException`, `SmtpProtocolException`, not connected), the channel reconnects and sends that email once more; any other failure closes the connection, so the next send starts clean, and the error goes to the dispatcher's normal retry path. `0` turns reuse off. Connection handling stays inside the channel rather than becoming a "begin batch" method on `INotificationChannel`, because only SMTP has this cost: a Web Push channel sends over `HttpClient`, whose handler already pools connections, so it implements the same three members and nothing else.
+
 ## Configuration
 
 Validated at startup; the service refuses to start with invalid values.
@@ -163,6 +165,7 @@ Validated at startup; the service refuses to start with invalid values.
 | `Smtp:Security` | `None` | `None`, `StartTls`, `SslOnConnect` or `Auto` (MailKit `SecureSocketOptions`) |
 | `Smtp:User` / `Password` | empty | No authentication when `User` is empty |
 | `Smtp:FromAddress` / `FromName` / `TimeoutSeconds` | `notifications@chathub.local` / `ChatHub` / `30` | Sender and per-operation timeout |
+| `Smtp:IdleTimeoutSeconds` | `30` | How long an unused SMTP connection is kept open for reuse; `0` connects per email |
 
 docker-compose maps them from `.env`:
 
@@ -175,7 +178,7 @@ docker-compose maps them from `.env`:
 docker-compose starts four services for this:
 
 - `notifications-migrator`: an EF migrations bundle. It **creates `chathub_notifications`** on the first run (the compose PostgreSQL user owns the server) and applies the migrations. On that first run it logs one "error occurred using the connection" line: EF probing the database before creating it.
-- `notifications`: one replica. Health check: `/health/ready` through a bash TCP probe; `/health/live` is also exposed. Depends on PostgreSQL being healthy, RabbitMQ being started, and the migrator having finished.
+- `notifications`: one replica, limited to 0.25 CPU and 192M of memory, with a database pool of 5 (`NOTIFICATIONS_DB_MAX_POOL_SIZE`). Idle it uses about 0.3% CPU and 96 MiB. Health check: `/health/ready` through a bash TCP probe; `/health/live` is also exposed. Depends on PostgreSQL being healthy, RabbitMQ being started, and the migrator having finished.
 - `mailpit`: catches all email. UI and API on http://127.0.0.1:8025; its SMTP port is only on the compose network.
 
 ```bash
@@ -241,7 +244,7 @@ SELECT "Channel", count(*), sum("MessageCount") FROM "SentNotifications" WHERE "
 - `DispatcherTests`: backoff and giving up, recovery, two dispatchers without double sends, lease expiry, a message arriving while sending.
 - `RecipientTests`: out-of-order and post-deletion user events.
 - `ConsumerTests`: the real consumer against RabbitMQ: ack, duplicate delivery, four kinds of poison message to the DLQ, retry queue then success, DLQ after max attempts.
-- `EmailChannelTests`: real SMTP into Mailpit asserted through its HTTP API, plus template tests.
+- `EmailChannelTests`: real SMTP into Mailpit asserted through its HTTP API, plus template tests. Connection reuse goes through `CountingTcpProxy`, a TCP forwarder in front of Mailpit that counts connections and can drop them: a batch uses one connection, a dropped connection is replaced and the email still arrives, and an idle connection is closed and replaced (with `FakeTimeProvider`).
 - `HostTests`: `/health/ready` on the real host, startup validation, retention cleanup.
 
 The backfill is tested in `Application.IntegrationTests/Features/SeederTests`.

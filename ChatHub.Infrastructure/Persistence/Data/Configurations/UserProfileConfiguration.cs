@@ -17,7 +17,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.Ignore(u => u.DomainEvents);
 
         builder.Property(u => u.PhoneNumber)
-            .HasConversion(new ValueConverter<PhoneNumber?, string?>(p => p!.FullNumber, s => PhoneNumber.Create(s!)))
+            .HasConversion(new ValueConverter<PhoneNumber?, string?>(p => p!.FullNumber, s => PhoneNumber.FromStorage(s!)))
             .HasMaxLength(20);
 
         builder.Property(u => u.Email)

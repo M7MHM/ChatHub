@@ -286,9 +286,11 @@ No index was added: the new plan uses the existing `(ConversationId, UserId)` an
 ### Connection budget
 
 ```
-api replicas × DB_MAX_POOL_SIZE + headroom  ≤  POSTGRES_MAX_CONNECTIONS
-          2  ×        30        +    40     ≤  100
+api replicas × DB_MAX_POOL_SIZE + NOTIFICATIONS_DB_MAX_POOL_SIZE + headroom  ≤  POSTGRES_MAX_CONNECTIONS
+          2  ×        30        +               5                +    35     ≤  100
 ```
+
+- **Notifications worker:** at most four connections in use at once (consumer, dispatcher, retention cleanup, health check), so its pool is capped at 5.
 
 - **Headroom** covers the migrator (1 connection), the seeder (1), psql / `pg_dump` / monitoring (a few), and a replica that is being recreated while the old one still holds its pool. The API connects as the PostgreSQL superuser, so `superuser_reserved_connections` adds nothing for it.
 - **Why 30:** that is plenty for a 1-CPU replica. The most a replica held after any run was 30 (configuration 1 at 70 it/s, and the collapsed 140 it/s run, where the cap made requests wait instead of opening backends). At 434 req/s over two replicas they held 19 + 19 and 30 + 23. When every pooled connection is busy, Npgsql queues the request (up to the 15 s `Timeout`), which is cheaper than another PostgreSQL backend on a database that is already busy.
