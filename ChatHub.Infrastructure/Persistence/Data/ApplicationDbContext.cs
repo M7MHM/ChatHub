@@ -3,6 +3,7 @@ using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Domain.Common;
 using ChatHub.Domain.Entities;
+using ChatHub.Infrastructure.Messaging;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,7 @@ public class ApplicationDbContext(
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<UploadedFile> UploadedFiles => Set<UploadedFile>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,9 +33,21 @@ public class ApplicationDbContext(
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         ApplyAuditInformation();
-        var domainEvents = CollectDomainEvents();
+        var raisers = ChangeTracker.Entries<BaseEntity>()
+            .Select(e => e.Entity)
+            .Where(e => e.DomainEvents.Count > 0)
+            .ToList();
+        var domainEvents = raisers.SelectMany(e => e.DomainEvents).ToList();
 
-        var result = await base.SaveChangesAsync(cancellationToken);
+        int result;
+        try
+        {
+            result = await base.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            foreach (var entity in raisers) entity.ClearDomainEvents();
+        }
 
         foreach (var domainEvent in domainEvents)
         {
@@ -43,18 +57,6 @@ public class ApplicationDbContext(
         }
 
         return result;
-    }
-
-    private List<IDomainEvent> CollectDomainEvents()
-    {
-        var events = new List<IDomainEvent>();
-        foreach (var entity in ChangeTracker.Entries<BaseEntity>().Select(e => e.Entity))
-        {
-            if (entity.DomainEvents.Count == 0) continue;
-            events.AddRange(entity.DomainEvents);
-            entity.ClearDomainEvents();
-        }
-        return events;
     }
 
     private void ApplyAuditInformation()

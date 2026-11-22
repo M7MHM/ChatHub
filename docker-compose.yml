@@ -44,6 +44,25 @@ services:
       timeout: 3s
       retries: 12
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-chathub}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-chathub}
+    ports:
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - chathub-rabbitmq:/var/lib/rabbitmq
+    networks: [chathub]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/5672"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
   migrator:
     build:
       context: .
@@ -82,6 +101,10 @@ services:
       Https__RedirectEnabled: "false"
       ForwardedHeaders__KnownNetworks__0: ${CHATHUB_SUBNET:-172.29.0.0/24}
       Diagnostics__ExposeInstanceId: "true"
+      Messaging__Enabled: ${MESSAGING_ENABLED:-true}
+      Messaging__Host: rabbitmq
+      Messaging__User: ${RABBITMQ_USER:-chathub}
+      Messaging__Password: ${RABBITMQ_PASSWORD:-chathub}
     deploy:
       replicas: 2
     networks: [chathub]
@@ -89,6 +112,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       migrator:
         condition: service_completed_successfully
@@ -111,3 +136,4 @@ services:
 volumes:
   chathub-pgdata:
   chathub-storage:
+  chathub-rabbitmq:

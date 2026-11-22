@@ -216,6 +216,7 @@ public sealed class ConversationMemberTests
         var read = member.DomainEvents.Last().ShouldBeOfType<MessageReadEvent>();
         read.MessageId.ShouldBe(message.Id);
         read.UserId.ShouldBe(_userId);
+        read.ReadUpToUtc.ShouldBe(message.CreatedAtUtc);
     }
 
     [Fact]

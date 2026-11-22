@@ -362,6 +362,22 @@ powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode single -Replicas
 
 The A/B runs themselves were made before `DB_MAX_AUTO_PREPARE` existed, by appending the options to `DB_MAX_POOL_SIZE` (e.g. `30;Max Auto Prepare=50`), which produces the same connection string.
 
+### Outbox impact (2026-11-22)
+
+Transactional outbox + RabbitMQ publisher ([MESSAGING.md](MESSAGING.md)). 2 replicas, cache ON, 70 it/s, `read-heavy+realtime` (`RT_DURATION=185`, so the realtime senders cover the whole steady phase), same phases as the matrix. A temporary durable queue was bound to `#` so events were routable, as they will be once the notification worker exists. Single runs; the control (`MESSAGING_ENABLED=false`) ran on the same stack right before the messaging run.
+
+| p95 (ms) | Matrix config 3, read-heavy only | Control, messaging off | Messaging on |
+|---|---|---|---|
+| `GET /me` | 5.2 | 3.7 | 3.8 |
+| `GET /conversations` | 12.6 | 18.0 | 24.7 |
+| `GET /…/messages` | 10.0 | 7.2 | 7.8 |
+| `POST /…/messages` | 27.3 | 22.1 | 50.9 |
+| All requests (p99) | 11.3 (48.1) | 10.6 (41.2) | 14.6 (61.2) |
+| Realtime delivery p95 | – | 58 | 63 |
+| API / PostgreSQL / RabbitMQ CPU | 31–36 / 20.5 / – | 41 / 21.6 / 1.1 | 43–45 / 27.2 / 1.5 |
+
+0 errors and all thresholds passed in every run. 3,262 events were published exactly once, none retried; publish lag p50 417 ms, p95 907 ms (the 1 s poll interval). Per message sent, PostgreSQL does one enrichment query (0.43 ms mean) and one outbox INSERT (0.06 ms); the publisher's claim and update statements are not in the top 10. The send p95 rose 2.3× (22 → 51 ms), just above the ~2× noise band of single runs: likely a real but small cost of the extra query, INSERT and serialization on the send path, not confirmed by repeats. Reads are unchanged within noise. A first messaging run, with `rabbitmq-diagnostics` as the compose health check, measured an all-request p95 of 28.9 ms: every probe started an Erlang VM using up to 2.4 cores for a second or two, every ~12 s. The health check is now a TCP probe and RabbitMQ stays under 5% CPU.
+
 ---
 
 # Before: baseline (2026-11-21)

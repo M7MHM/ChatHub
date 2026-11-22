@@ -42,6 +42,14 @@ public class UserProfile : BaseAuditableEntity
         };
     }
 
+    public static UserProfile Register(string displayName, string passwordHash,
+        PhoneNumber? phoneNumber = null, Email? email = null)
+    {
+        var user = Create(displayName, passwordHash, phoneNumber, email);
+        user.AddDomainEvent(new UserRegisteredEvent(user.Id));
+        return user;
+    }
+
     public void UpdateProfile(string displayName, string? avatarUrl, string? bio)
     {
         EnsureNotDeleted();
@@ -111,6 +119,7 @@ public class UserProfile : BaseAuditableEntity
         GoOffline();
         IsDeleted = true;
         RotateSecurityStamp();
+        AddDomainEvent(new UserDeletedEvent(Id));
     }
 
     private static string ValidateDisplayName(string displayName)

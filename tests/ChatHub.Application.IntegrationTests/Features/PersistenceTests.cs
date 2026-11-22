@@ -34,10 +34,11 @@ public sealed class PersistenceTests(DatabaseFixture database) : AppTestBase(dat
     {
         var applied = (await QueryDbAsync(db => db.Database.GetAppliedMigrationsAsync())).ToList();
 
-        applied.Count.ShouldBe(3);
+        applied.Count.ShouldBe(4);
         applied[0].ShouldEndWith("_InitialCreate");
         applied[1].ShouldEndWith("_AddSecurityStamp");
         applied[2].ShouldEndWith("_AddUploadedFiles");
+        applied[3].ShouldEndWith("_AddOutboxMessages");
     }
 
     [Fact]

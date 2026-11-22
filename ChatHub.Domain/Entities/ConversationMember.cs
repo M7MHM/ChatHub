@@ -108,7 +108,7 @@ public class ConversationMember : BaseAuditableEntity
         if (LastReadMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
         LastReadMessageId = message.Id;
         LastReadMessageAtUtc = message.CreatedAtUtc;
-        AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow));
+        AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow, message.CreatedAtUtc));
     }
 
     private void AdvanceDelivered(Message message)

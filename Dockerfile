@@ -2,11 +2,13 @@
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY ChatHub.Contracts/ChatHub.Contracts.csproj ChatHub.Contracts/
 COPY ChatHub.Domain/ChatHub.Domain.csproj ChatHub.Domain/
 COPY ChatHub.Application/ChatHub.Application.csproj ChatHub.Application/
 COPY ChatHub.Infrastructure/ChatHub.Infrastructure.csproj ChatHub.Infrastructure/
 COPY ChatHub.WebAPI/ChatHub.WebAPI.csproj ChatHub.WebAPI/
 RUN dotnet restore ChatHub.WebAPI/ChatHub.WebAPI.csproj
+COPY ChatHub.Contracts/ ChatHub.Contracts/
 COPY ChatHub.Domain/ ChatHub.Domain/
 COPY ChatHub.Application/ ChatHub.Application/
 COPY ChatHub.Infrastructure/ ChatHub.Infrastructure/

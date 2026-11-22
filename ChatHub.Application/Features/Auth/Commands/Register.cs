@@ -40,7 +40,7 @@ public sealed class RegisterCommandHandler(
 
         if (await IsContactInUseAsync(email, phoneNumber, cancellationToken)) return AuthErrors.ContactInUse;
 
-        var user = UserProfile.Create(request.DisplayName, passwordHasher.Hash(request.Password), phoneNumber, email);
+        var user = UserProfile.Register(request.DisplayName, passwordHasher.Hash(request.Password), phoneNumber, email);
         db.UserProfiles.Add(user);
 
         var response = tokens.Issue(user);

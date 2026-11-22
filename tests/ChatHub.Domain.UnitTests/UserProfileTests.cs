@@ -241,6 +241,33 @@ public sealed class UserProfileTests
         user.IsDeleted.ShouldBeTrue();
         user.IsOnline.ShouldBeFalse();
         user.SecurityStamp.ShouldNotBe(before);
-        user.DomainEvents.ShouldHaveSingleItem().ShouldBeOfType<UserStatusChangedEvent>().IsOnline.ShouldBeFalse();
+        user.DomainEvents.OfType<UserStatusChangedEvent>().ShouldHaveSingleItem().IsOnline.ShouldBeFalse();
+        user.DomainEvents.OfType<UserDeletedEvent>().ShouldHaveSingleItem().ShouldBe(new UserDeletedEvent(user.Id));
+    }
+
+    [Fact]
+    public void Delete_OfflineUser_RaisesOnlyUserDeleted()
+    {
+        var user = TestData.User();
+
+        user.Delete();
+
+        user.DomainEvents.ShouldHaveSingleItem().ShouldBe(new UserDeletedEvent(user.Id));
+    }
+
+    [Fact]
+    public void Register_CreatesTheUserAndRaisesUserRegistered()
+    {
+        var user = UserProfile.Register("  Alice  ", "hash", email: Email.Create("alice@example.com"));
+
+        user.DisplayName.ShouldBe("Alice");
+        user.Email.ShouldBe(Email.Create("alice@example.com"));
+        user.DomainEvents.ShouldHaveSingleItem().ShouldBe(new UserRegisteredEvent(user.Id));
+    }
+
+    [Fact]
+    public void Register_WithoutAnyContact_Throws()
+    {
+        Should.Throw<DomainRuleViolationException>(() => UserProfile.Register("Alice", "hash"));
     }
 }

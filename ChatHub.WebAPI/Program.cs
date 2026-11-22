@@ -40,7 +40,8 @@ builder.Services.AddApiRateLimiting(builder.Configuration);
 const string readyTag = "ready";
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<ApplicationDbContext>(tags: [readyTag])
-    .AddRedisHealthCheck(builder.Configuration, readyTag);
+    .AddRedisHealthCheck(builder.Configuration, readyTag)
+    .AddMessagingHealthChecks(builder.Configuration, readyTag);
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options =>
