@@ -12,7 +12,7 @@ param(
     [int]$Steady = 120,
     [int]$RampDown = 15,
     [string]$ExtraEnv = '',
-    [int]$MaxPoolSize = 100
+    [int]$MaxPoolSize = 0
 )
 
 Add-Type -Namespace LoadTest -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'
@@ -32,9 +32,10 @@ function Get-Backends {
 }
 
 function Set-Configuration([int]$ApiReplicas, [string]$CachingEnabled) {
-    Write-Host "== configuration: $ApiReplicas api replica(s), caching $CachingEnabled, Npgsql max pool size $MaxPoolSize"
+    if ($MaxPoolSize -gt 0) { $env:DB_MAX_POOL_SIZE = $MaxPoolSize }
+    $pool = if ($env:DB_MAX_POOL_SIZE) { $env:DB_MAX_POOL_SIZE } else { 'compose default' }
+    Write-Host "== configuration: $ApiReplicas api replica(s), caching $CachingEnabled, Npgsql max pool size $pool"
     $env:CACHING_ENABLED = $CachingEnabled
-    $env:DB_MAX_POOL_SIZE = $MaxPoolSize
     docker @compose up -d 2>&1 | Out-Null
     docker @compose up -d --no-deps --force-recreate --scale "api=$ApiReplicas" api 2>&1 | Out-Null
     Invoke-Psql 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' | Out-Null
@@ -143,7 +144,7 @@ switch ($Mode) {
     'max' {
         Set-Configuration $Replicas $Caching
         foreach ($stepRate in ($StepRates -split ',' | Where-Object { $_ } | ForEach-Object { [int]$_ })) {
-            $poolSuffix = if ($MaxPoolSize -ne 100) { "-pool$MaxPoolSize" } else { '' }
+            $poolSuffix = if ($MaxPoolSize -gt 0) { "-pool$MaxPoolSize" } else { '' }
             $summary = Invoke-LoadTest "max-r$Replicas-cache-$Caching$poolSuffix-$stepRate" $stepRate
             if (-not $summary.thresholdsPassed) {
                 Write-Host "== $stepRate iterations/s broke the thresholds: $($summary.failedThresholds -join '; ')"

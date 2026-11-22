@@ -53,18 +53,18 @@ used in the report). `results/` is gitignored.
 - records the PostgreSQL backends per client right after the run (`<name>.connections.txt`), restarts the API so psql can get a connection, and saves the top SQL statements from `pg_stat_statements` (`<name>.pgstat.txt`);
 - keeps Windows from entering idle standby while it runs, and if the machine still suspended during a run (lid closed), writes `<name>.INVALID.txt` and prints a red warning. Discard such runs: a frozen Docker VM produces timeouts and expired tokens, not real numbers.
 
-`-MaxPoolSize` sets Npgsql's `Maximum Pool Size` for the API (default 100, Npgsql's own default). See
-docs/PERFORMANCE.md for why two replicas need a smaller value.
+`-MaxPoolSize` overrides Npgsql's `Maximum Pool Size` per API replica. Without it the compose default applies
+(`DB_MAX_POOL_SIZE`, 30, sized against PostgreSQL's `max_connections`; see docker-compose.yml and docs/PERFORMANCE.md).
 
 ```powershell
 # same load on: 1 replica no cache, 1 replica cache, 2 replicas cache
 powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode matrix -Rate 70 -RampUp 20 -Warmup 60 -Steady 120 -RampDown 10
 
 # step the arrival rate up until a threshold breaks
-powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode max -Replicas 2 -Caching true -MaxPoolSize 45 -StepRates 100,140,180 -RampUp 20 -Warmup 60 -Steady 60 -RampDown 5
+powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode max -Replicas 2 -Caching true -StepRates 100,140,180 -RampUp 20 -Warmup 60 -Steady 60 -RampDown 5
 
 # realtime delivery latency (2 replicas, so senders and listeners are spread over both)
-powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode single -Replicas 2 -Caching true -MaxPoolSize 45 -Scenario realtime -Name realtime-r2-cache-pool45 -ExtraEnv "RT_DURATION=60" -RampUp 15 -Warmup 0 -Steady 60
+powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode single -Replicas 2 -Caching true -Scenario realtime -Name realtime-r2-cache -ExtraEnv "RT_DURATION=60" -RampUp 15 -Warmup 0 -Steady 60
 ```
 
 Restore the normal stack afterwards with `docker compose up -d` (base file only: 2 replicas, default limits).

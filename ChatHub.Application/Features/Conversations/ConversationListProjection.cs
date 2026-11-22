@@ -41,13 +41,13 @@ internal static class ConversationListProjection
                 r.Member.Conversation.LastMessageAtUtc,
                 ActivityAtUtc = r.Member.Conversation.LastMessageAtUtc ?? r.Member.Conversation.CreatedAtUtc,
                 r.Member.IsMuted,
-                OtherUser = r.Member.Conversation.Type == ConversationType.Direct
-                    ? r.Member.Conversation.Members
-                        .Where(o => o.UserId != userId)
-                        .Select(o => UserSummary.Create(o.User.Id, o.User.DisplayName, o.User.AvatarUrl,
-                            o.User.IsOnline, o.User.LastSeenUtc, o.User.IsDeleted))
-                        .FirstOrDefault()
-                    : null,
+                OtherUser = db.ConversationMembers
+                    .Where(o => r.Member.Conversation.Type == ConversationType.Direct &&
+                                o.ConversationId == r.Member.ConversationId &&
+                                o.UserId != r.Member.UserId)
+                    .Select(o => UserSummary.Create(o.User.Id, o.User.DisplayName, o.User.AvatarUrl,
+                        o.User.IsOnline, o.User.LastSeenUtc, o.User.IsDeleted))
+                    .FirstOrDefault(),
                 LastMessage = db.Messages
                     .Where(x => x.Id == r.Member.Conversation.LastMessageId && x.CreatedAtUtc > r.VisibleAfterUtc)
                     .Select(x => new
@@ -67,8 +67,10 @@ internal static class ConversationListProjection
                     x.ConversationId == r.Member.ConversationId &&
                     x.SenderId != userId &&
                     !x.IsDeleted &&
-                    x.CreatedAtUtc > r.VisibleAfterUtc &&
-                    (r.Member.LastReadMessageAtUtc == null || x.CreatedAtUtc > r.Member.LastReadMessageAtUtc))
+                    x.CreatedAtUtc > (r.Member.LastReadMessageAtUtc != null &&
+                                      r.Member.LastReadMessageAtUtc > r.VisibleAfterUtc
+                        ? r.Member.LastReadMessageAtUtc.Value
+                        : r.VisibleAfterUtc))
             })
             .ToListAsync(cancellationToken);
 
