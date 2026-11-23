@@ -1,5 +1,6 @@
 using ChatHub.Domain.Entities;
 using ChatHub.Domain.ValueObjects;
+using ChatHub.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -17,7 +18,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.Ignore(u => u.DomainEvents);
 
         builder.Property(u => u.PhoneNumber)
-            .HasConversion(new ValueConverter<PhoneNumber?, string?>(p => p!.FullNumber, s => PhoneNumber.Create(s!)))
+            .HasConversion(new ValueConverter<PhoneNumber?, string?>(p => p!.FullNumber, s => PhoneNumber.FromStorage(s!)))
             .HasMaxLength(20);
 
         builder.Property(u => u.Email)
@@ -29,9 +30,11 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.Property(u => u.SecurityStamp).IsRequired();
         builder.Property(u => u.AvatarUrl).HasMaxLength(2048);
         builder.Property(u => u.Bio).HasMaxLength(UserProfile.MaxBioLength);
+        builder.Property(u => u.UnsubscribeTokenHash).HasMaxLength(OpaqueToken.MaxHashLength);
 
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("\"IsDeleted\" = false");
+        builder.HasIndex(u => u.UnsubscribeTokenHash).IsUnique().HasFilter("\"UnsubscribeTokenHash\" IS NOT NULL");
 
     }
 }

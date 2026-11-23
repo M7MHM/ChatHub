@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\ChatHub.Contracts\ChatHub.Contracts.csproj" />
     <ProjectReference Include="..\ChatHub.Domain\ChatHub.Domain.csproj" />
   </ItemGroup>
 

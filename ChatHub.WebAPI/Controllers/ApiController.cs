@@ -20,6 +20,7 @@ public abstract class ApiController(ISender sender) : ControllerBase
             ErrorType.NotFound => StatusCodes.Status404NotFound,
             ErrorType.Conflict => StatusCodes.Status409Conflict,
             ErrorType.Forbidden => StatusCodes.Status403Forbidden,
+            ErrorType.TooManyRequests => StatusCodes.Status429TooManyRequests,
             _ => StatusCodes.Status400BadRequest
         };
 
@@ -31,6 +32,9 @@ public abstract class ApiController(ISender sender) : ControllerBase
 
     protected ActionResult ToOk<T>(Result<T> result) =>
         result.IsSuccess ? Ok(result.Value) : Problem(result.Error);
+
+    protected ActionResult ToAccepted<T>(Result<T> result) =>
+        result.IsSuccess ? Accepted(result.Value) : Problem(result.Error);
 
     protected ActionResult ToNoContent(Result result) =>
         result.IsSuccess ? NoContent() : Problem(result.Error);

@@ -21,6 +21,11 @@ public class UserProfile : BaseAuditableEntity
     public string? Bio { get; private set; }
     public bool IsOnline { get; private set; } = false;
     public DateTime? LastSeenUtc { get; private set; }
+    public DateTime? EmailVerifiedAtUtc { get; private set; }
+    public bool EmailNotificationsEnabled { get; private set; } = true;
+    public string? UnsubscribeTokenHash { get; private set; }
+
+    public bool IsEmailVerified => EmailVerifiedAtUtc is not null;
 
     public ICollection<ConversationMember> Memberships { get; private set; } = new List<ConversationMember>();
     public ICollection<UserBlock> BlockedUsers { get; private set; } = new List<UserBlock>();
@@ -40,6 +45,14 @@ public class UserProfile : BaseAuditableEntity
             PhoneNumber = phoneNumber,
             Email = email
         };
+    }
+
+    public static UserProfile Register(string displayName, string passwordHash,
+        PhoneNumber? phoneNumber = null, Email? email = null)
+    {
+        var user = Create(displayName, passwordHash, phoneNumber, email);
+        user.AddDomainEvent(new UserRegisteredEvent(user.Id));
+        return user;
     }
 
     public void UpdateProfile(string displayName, string? avatarUrl, string? bio)
@@ -87,7 +100,57 @@ public class UserProfile : BaseAuditableEntity
         if (email == Email) return;
 
         Email = email;
+        EmailVerifiedAtUtc = null;
         AddDomainEvent(new UserProfileUpdatedEvent(Id));
+    }
+
+    public EmailVerificationToken RequestEmailVerification(string token, string tokenHash, DateTime nowUtc, TimeSpan lifetime)
+    {
+        EnsureNotDeleted();
+        if (string.IsNullOrWhiteSpace(token))
+            throw new DomainRuleViolationException("A verification token is required.");
+        if (Email is null)
+            throw new DomainRuleViolationException("There is no email address to verify.");
+        if (IsEmailVerified)
+            throw new DomainRuleViolationException("The email address is already verified.");
+
+        var verification = EmailVerificationToken.Issue(Id, Email, tokenHash, nowUtc, lifetime);
+        AddDomainEvent(new EmailVerificationRequestedEvent(Id, Email.Value, token, verification.ExpiresAtUtc));
+        return verification;
+    }
+
+    public void VerifyEmail(EmailVerificationToken verification, DateTime nowUtc)
+    {
+        EnsureNotDeleted();
+        if (verification.UserId != Id)
+            throw new DomainRuleViolationException("The verification token belongs to another user.");
+        if (IsEmailVerified)
+            throw new DomainRuleViolationException("The email address is already verified.");
+        if (Email is null || verification.Email != Email.Value)
+            throw new DomainRuleViolationException("The verification token was issued for another email address.");
+
+        verification.MarkUsed(nowUtc);
+        EmailVerifiedAtUtc = nowUtc;
+        AddDomainEvent(new EmailVerifiedEvent(Id));
+    }
+
+    public void SetEmailNotifications(bool enabled)
+    {
+        EnsureNotDeleted();
+        if (EmailNotificationsEnabled == enabled) return;
+
+        EmailNotificationsEnabled = enabled;
+        AddDomainEvent(new EmailNotificationsChangedEvent(Id, enabled));
+    }
+
+    public void IssueUnsubscribeToken(string token, string tokenHash)
+    {
+        EnsureNotDeleted();
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(tokenHash))
+            throw new DomainRuleViolationException("An unsubscribe token and its hash are required.");
+
+        UnsubscribeTokenHash = tokenHash;
+        AddDomainEvent(new UnsubscribeTokenIssuedEvent(Id, token));
     }
 
     public void GoOnline()
@@ -111,6 +174,7 @@ public class UserProfile : BaseAuditableEntity
         GoOffline();
         IsDeleted = true;
         RotateSecurityStamp();
+        AddDomainEvent(new UserDeletedEvent(Id));
     }
 
     private static string ValidateDisplayName(string displayName)

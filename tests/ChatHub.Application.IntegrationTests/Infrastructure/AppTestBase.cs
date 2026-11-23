@@ -56,6 +56,8 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
         Logs.Errors.ShouldBeEmpty("ChatHub code logged unexpected errors during the test");
     }
 
+    protected virtual IReadOnlyDictionary<string, string?> Settings { get; } = new Dictionary<string, string?>();
+
     protected virtual void ConfigureServices(IServiceCollection services)
     {
     }
@@ -72,6 +74,7 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
                 ["FileStorage:RootPath"] = FilesRoot,
                 ["FileStorage:SigningKey"] = "application-tests-file-signing-key-0123456789"
             })
+            .AddInMemoryCollection(Settings)
             .Build();
 
         var services = new ServiceCollection();

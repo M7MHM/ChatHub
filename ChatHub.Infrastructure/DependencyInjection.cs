@@ -2,9 +2,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatHub.Application.Common.Caching;
+using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Interfaces;
+using ChatHub.Application.Features.Auth;
 using ChatHub.Infrastructure.Caching;
 using ChatHub.Infrastructure.Identity;
+using ChatHub.Infrastructure.Messaging;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Infrastructure.RealTime;
 using ChatHub.Infrastructure.Storage;
@@ -34,12 +37,15 @@ public static class DependencyInjection
     {
         services.TryAddSingleton(TimeProvider.System);
         var redis = RedisConfiguration(configuration);
+        var messaging = MessagingEnabled(configuration);
 
         services.AddCaching(configuration, redis);
-        services.AddPersistence(configuration);
+        services.AddPersistence(configuration, messaging);
         services.AddSecurity(configuration);
+        services.AddAccountEmails(configuration);
         services.AddFileStorage(configuration);
         services.AddRealTime(configuration, redis);
+        if (messaging) services.AddMessaging(configuration);
 
         return services;
     }
@@ -50,18 +56,54 @@ public static class DependencyInjection
             ? builder
             : builder.AddCheck<RedisHealthCheck>("redis", HealthStatus.Degraded, tags);
 
-    private static void AddPersistence(this IServiceCollection services, IConfiguration configuration)
+    public static IHealthChecksBuilder AddMessagingHealthChecks(this IHealthChecksBuilder builder, IConfiguration configuration,
+        params string[] tags) =>
+        !MessagingEnabled(configuration)
+            ? builder
+            : builder
+                .AddCheck<RabbitMqHealthCheck>("rabbitmq", HealthStatus.Degraded, tags)
+                .AddCheck<OutboxBacklogHealthCheck>("outbox", HealthStatus.Degraded, tags);
+
+    private static bool MessagingEnabled(IConfiguration configuration) =>
+        configuration.GetValue(MessagingSettings.EnabledSetting, false);
+
+    private static void AddPersistence(this IServiceCollection services, IConfiguration configuration, bool outbox)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
 
         services.AddScoped<CacheInvalidationInterceptor>();
-        services.AddDbContext<ApplicationDbContext>((sp, options) => options
-            .UseNpgsql(connectionString, npgsql =>
-                npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName))
-            .AddInterceptors(sp.GetRequiredService<CacheInvalidationInterceptor>()));
+        if (outbox) services.AddScoped<OutboxInterceptor>();
+        services.AddDbContext<ApplicationDbContext>((sp, options) =>
+        {
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName));
+            if (outbox) options.AddInterceptors(sp.GetRequiredService<OutboxInterceptor>());
+            options.AddInterceptors(sp.GetRequiredService<CacheInvalidationInterceptor>());
+        });
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+    }
+
+    private static void AddMessaging(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<MessagingSettings>()
+            .Bind(configuration.GetSection(MessagingSettings.SectionName))
+            .Validate(s => !string.IsNullOrWhiteSpace(s.Host) && s.Port is > 0 and <= 65535 && !string.IsNullOrWhiteSpace(s.VirtualHost),
+                "Messaging requires a Host, a Port between 1 and 65535 and a VirtualHost.")
+            .Validate(s => !string.IsNullOrWhiteSpace(s.User) && !string.IsNullOrEmpty(s.Password),
+                "Messaging requires a User and a Password.")
+            .Validate(s => s.BatchSize is > 0 and <= 1000 && s.PollIntervalMilliseconds > 0,
+                "Messaging BatchSize must be between 1 and 1000 and PollIntervalMilliseconds greater than zero.")
+            .Validate(s => s.RetentionDays > 0 && s.CleanupIntervalMinutes > 0,
+                "Messaging RetentionDays and CleanupIntervalMinutes must be greater than zero.")
+            .Validate(s => s.PublishTimeoutSeconds > 0 && s.MaxRetryDelaySeconds > 0 && s.BacklogAlertMinutes > 0,
+                "Messaging PublishTimeoutSeconds, MaxRetryDelaySeconds and BacklogAlertMinutes must be greater than zero.")
+            .ValidateOnStart();
+
+        services.AddSingleton<RabbitMqPublisher>();
+        services.AddSingleton<OutboxPublisherService>();
+        services.AddHostedService(sp => sp.GetRequiredService<OutboxPublisherService>());
     }
 
     private static void AddCaching(this IServiceCollection services, IConfiguration configuration, ConfigurationOptions? redis)
@@ -146,6 +188,25 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddSingleton<IIdentityService, IdentityService>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
+    }
+
+    private static void AddAccountEmails(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<AppUrlSettings>()
+            .Bind(configuration.GetSection(AppUrlSettings.SectionName))
+            .Validate(s => AppUrlSettings.IsValidBaseUrl(s.PublicApiBaseUrl),
+                "App PublicApiBaseUrl must be an absolute http(s) URL without a query string.")
+            .ValidateOnStart();
+
+        services.AddOptions<EmailVerificationSettings>()
+            .Bind(configuration.GetSection(EmailVerificationSettings.SectionName))
+            .Validate(s => s.TokenLifetimeHours is > 0 and <= 168,
+                "EmailVerification TokenLifetimeHours must be between 1 and 168.")
+            .Validate(s => s.MaxRequestsPerHour is > 0 and <= 100,
+                "EmailVerification MaxRequestsPerHour must be between 1 and 100.")
+            .ValidateOnStart();
+
+        services.AddSingleton(sp => new EmailLinks(sp.GetRequiredService<IOptions<AppUrlSettings>>().Value.PublicApiBaseUrl));
     }
 
     private static void AddFileStorage(this IServiceCollection services, IConfiguration configuration)

@@ -34,10 +34,38 @@ public sealed class PersistenceTests(DatabaseFixture database) : AppTestBase(dat
     {
         var applied = (await QueryDbAsync(db => db.Database.GetAppliedMigrationsAsync())).ToList();
 
-        applied.Count.ShouldBe(3);
+        applied.Count.ShouldBe(5);
         applied[0].ShouldEndWith("_InitialCreate");
         applied[1].ShouldEndWith("_AddSecurityStamp");
         applied[2].ShouldEndWith("_AddUploadedFiles");
+        applied[3].ShouldEndWith("_AddOutboxMessages");
+        applied[4].ShouldEndWith("_AddEmailVerificationAndPreferences");
+    }
+
+    [Fact]
+    public async Task Migrate_AddEmailVerificationOverExistingUsers_LeavesThemUnverifiedWithEmailNotificationsOn()
+    {
+        var connectionString = await Database.CreateDatabaseAsync();
+        try
+        {
+            await using var db = TestDbContextFactory.Create(connectionString);
+            var outbox = db.Database.GetMigrations().First(m => m.EndsWith("_AddOutboxMessages", StringComparison.Ordinal));
+            await db.GetService<IMigrator>().MigrateAsync(outbox);
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                INSERT INTO "UserProfiles" ("Id", "Email", "DisplayName", "PasswordHash", "SecurityStamp", "IsOnline", "CreatedAtUtc", "IsDeleted")
+                VALUES (gen_random_uuid(), 'legacy@example.com', 'Legacy', 'x', gen_random_uuid(), false, now(), false)
+                """);
+
+            await db.Database.MigrateAsync();
+
+            var user = await db.UserProfiles.AsNoTracking().SingleAsync();
+            (user.IsEmailVerified, user.EmailNotificationsEnabled, user.UnsubscribeTokenHash).ShouldBe((false, true, null));
+        }
+        finally
+        {
+            await Database.DropDatabaseAsync(connectionString);
+        }
     }
 
     [Fact]

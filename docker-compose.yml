@@ -2,9 +2,15 @@ name: chathub
 
 x-db-connection: &db-connection "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${POSTGRES_USER:?set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Gss Encryption Mode=Disable"
 
-# Connection budget: api replicas × DB_MAX_POOL_SIZE + headroom <= POSTGRES_MAX_CONNECTIONS, where headroom covers the
-# migrator, the seeder, psql and a replica being recreated. Defaults: 2 × 30 = 60 of 100. See docs/PERFORMANCE.md.
+# Connection budget: api replicas × DB_MAX_POOL_SIZE + NOTIFICATIONS_DB_MAX_POOL_SIZE + headroom <= POSTGRES_MAX_CONNECTIONS,
+# where headroom covers the migrators, the seeder, psql and a replica being recreated. Defaults: 2 × 30 + 5 = 65 of 100.
+# See docs/PERFORMANCE.md.
 x-db-api-connection: &db-api-connection "Host=postgres;Port=5432;Database=${POSTGRES_DB:?set POSTGRES_DB in .env};Username=${POSTGRES_USER:?set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Gss Encryption Mode=Disable;Maximum Pool Size=${DB_MAX_POOL_SIZE:-30};Max Auto Prepare=${DB_MAX_AUTO_PREPARE:-50}"
+
+# The notification service has its own database on the same PostgreSQL server; its migrator creates it on first run.
+# Its pool is small on purpose: at most four connections are in use at once (consumer, dispatcher, retention cleanup,
+# health check), so 5 leaves one spare and keeps the worker from eating into the API's share of max_connections.
+x-notifications-db-connection: &notifications-db-connection "Host=postgres;Port=5432;Database=${NOTIFICATIONS_DB:-chathub_notifications};Username=${POSTGRES_USER:?set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env};Gss Encryption Mode=Disable;Maximum Pool Size=${NOTIFICATIONS_DB_MAX_POOL_SIZE:-5}"
 
 networks:
   chathub:
@@ -44,6 +50,25 @@ services:
       timeout: 3s
       retries: 12
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-chathub}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-chathub}
+    ports:
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - chathub-rabbitmq:/var/lib/rabbitmq
+    networks: [chathub]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/5672"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
   migrator:
     build:
       context: .
@@ -62,6 +87,7 @@ services:
     profiles: ["seed"]
     environment:
       ConnectionStrings__DefaultConnection: *db-connection
+      App__PublicApiBaseUrl: ${PUBLIC_API_BASE_URL:-http://localhost:8080}
     networks: [chathub]
     depends_on:
       postgres:
@@ -82,6 +108,14 @@ services:
       Https__RedirectEnabled: "false"
       ForwardedHeaders__KnownNetworks__0: ${CHATHUB_SUBNET:-172.29.0.0/24}
       Diagnostics__ExposeInstanceId: "true"
+      Messaging__Enabled: ${MESSAGING_ENABLED:-true}
+      Messaging__Host: rabbitmq
+      Messaging__User: ${RABBITMQ_USER:-chathub}
+      Messaging__Password: ${RABBITMQ_PASSWORD:-chathub}
+      # Links in verification and unsubscribe emails point here: the address users reach nginx at.
+      App__PublicApiBaseUrl: ${PUBLIC_API_BASE_URL:-http://localhost:8080}
+      EmailVerification__TokenLifetimeHours: ${EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS:-24}
+      EmailVerification__MaxRequestsPerHour: ${EMAIL_VERIFICATION_MAX_REQUESTS_PER_HOUR:-3}
     deploy:
       replicas: 2
     networks: [chathub]
@@ -90,11 +124,85 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_started
       migrator:
         condition: service_completed_successfully
     volumes:
       - chathub-storage:/app/storage
     restart: unless-stopped
+
+  notifications-migrator:
+    build:
+      context: .
+      target: notifications-migrator
+    command: ["--connection", *notifications-db-connection]
+    networks: [chathub]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  notifications:
+    build:
+      context: .
+      target: notifications
+    environment:
+      # Its own variable, so the worker can run as Development (no suppressed domains: seeded @chathub.test mail reaches
+      # Mailpit) while the api stays Production. Production never emails reserved domains (Notifications:SuppressedEmailDomains).
+      ASPNETCORE_ENVIRONMENT: ${NOTIFICATIONS_ENVIRONMENT:-Production}
+      ConnectionStrings__Notifications: *notifications-db-connection
+      RabbitMq__Host: rabbitmq
+      RabbitMq__User: ${RABBITMQ_USER:-chathub}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-chathub}
+      Smtp__Host: ${SMTP_HOST:-mailpit}
+      Smtp__Port: ${SMTP_PORT:-1025}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__Security: ${SMTP_SECURITY:-None}
+      Smtp__FromAddress: ${SMTP_FROM_ADDRESS:-notifications@chathub.local}
+      Smtp__FromName: ${SMTP_FROM_NAME:-ChatHub}
+      Notifications__DigestDelaySeconds: ${NOTIFICATIONS_DIGEST_DELAY_SECONDS:-120}
+      Notifications__CooldownMinutes: ${NOTIFICATIONS_COOLDOWN_MINUTES:-15}
+      Notifications__IncludePreview: ${NOTIFICATIONS_INCLUDE_PREVIEW:-true}
+      Notifications__AppBaseUrl: ${NOTIFICATIONS_APP_BASE_URL:-http://localhost:3000}
+      # Sending limits, sized for Brevo's free tier (300 emails a day): see docs/NOTIFICATIONS.md#sending-limits.
+      Notifications__MaxEmailsPerMinute: ${NOTIFICATIONS_MAX_EMAILS_PER_MINUTE:-20}
+      Notifications__MaxDigestsPerMinute: ${NOTIFICATIONS_MAX_DIGESTS_PER_MINUTE:-15}
+      Notifications__MaxEmailsPerDay: ${NOTIFICATIONS_MAX_EMAILS_PER_DAY:-250}
+      Notifications__MaxDigestsPerDay: ${NOTIFICATIONS_MAX_DIGESTS_PER_DAY:-200}
+      Notifications__MaxEmailsPerRecipientPerHour: ${NOTIFICATIONS_MAX_EMAILS_PER_RECIPIENT_PER_HOUR:-4}
+      # How often a digest held for an online or unverified recipient is checked again.
+      Notifications__HoldRecheckSeconds: ${NOTIFICATIONS_HOLD_RECHECK_SECONDS:-60}
+    # A background worker must not starve the API. Measured idle with docker stats: ~0.3% CPU and ~96 MiB, so a quarter
+    # of a core and 192M leave room for a burst of digests; .NET sizes its GC heap to the memory limit.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 192M
+    networks: [chathub]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      notifications-migrator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks: [chathub]
 
   nginx:
     image: nginx:1.30-alpine
@@ -111,3 +219,4 @@ services:
 volumes:
   chathub-pgdata:
   chathub-storage:
+  chathub-rabbitmq:

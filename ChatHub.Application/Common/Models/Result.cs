@@ -9,6 +9,7 @@ public sealed record Error(string Code, string Description, ErrorType Type = Err
     public static Error NotFound(string code, string description) => new(code, description, ErrorType.NotFound);
     public static Error Conflict(string code, string description) => new(code, description, ErrorType.Conflict);
     public static Error Forbidden(string code, string description) => new(code, description, ErrorType.Forbidden);
+    public static Error TooManyRequests(string code, string description) => new(code, description, ErrorType.TooManyRequests);
 }
 
 public class Result

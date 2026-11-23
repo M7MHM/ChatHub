@@ -18,6 +18,12 @@ public sealed class UsersController(ISender sender) : ApiController(sender)
         [FromBody] UpdateMyProfileCommand command, CancellationToken cancellationToken) =>
         ToNoContent(await Sender.Send(command, cancellationToken));
 
+    [HttpPut("users/me/email-preferences")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> UpdateEmailPreferences(
+        [FromBody] UpdateEmailPreferencesCommand command, CancellationToken cancellationToken) =>
+        ToNoContent(await Sender.Send(command, cancellationToken));
+
     [HttpDelete("users/me")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteMe(CancellationToken cancellationToken) =>

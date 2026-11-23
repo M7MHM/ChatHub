@@ -2,11 +2,13 @@
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY ChatHub.Contracts/ChatHub.Contracts.csproj ChatHub.Contracts/
 COPY ChatHub.Domain/ChatHub.Domain.csproj ChatHub.Domain/
 COPY ChatHub.Application/ChatHub.Application.csproj ChatHub.Application/
 COPY ChatHub.Infrastructure/ChatHub.Infrastructure.csproj ChatHub.Infrastructure/
 COPY ChatHub.WebAPI/ChatHub.WebAPI.csproj ChatHub.WebAPI/
 RUN dotnet restore ChatHub.WebAPI/ChatHub.WebAPI.csproj
+COPY ChatHub.Contracts/ ChatHub.Contracts/
 COPY ChatHub.Domain/ ChatHub.Domain/
 COPY ChatHub.Application/ ChatHub.Application/
 COPY ChatHub.Infrastructure/ ChatHub.Infrastructure/
@@ -28,6 +30,31 @@ RUN case "$TARGETARCH" in \
     && /tools/dotnet-ef migrations bundle \
         --project ChatHub.Infrastructure \
         --startup-project ChatHub.WebAPI \
+        --configuration Release \
+        --no-build \
+        --target-runtime "$rid" \
+        --output /app/efbundle
+
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS notifications-build
+WORKDIR /src
+COPY ChatHub.Contracts/ChatHub.Contracts.csproj ChatHub.Contracts/
+COPY ChatHub.Notifications/ChatHub.Notifications.csproj ChatHub.Notifications/
+RUN dotnet restore ChatHub.Notifications/ChatHub.Notifications.csproj
+COPY ChatHub.Contracts/ ChatHub.Contracts/
+COPY ChatHub.Notifications/ ChatHub.Notifications/
+RUN dotnet publish ChatHub.Notifications/ChatHub.Notifications.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false
+
+FROM notifications-build AS notifications-bundle
+ARG TARGETARCH
+COPY --from=ef-tools /tools /tools
+RUN case "$TARGETARCH" in \
+        amd64) rid=linux-x64 ;; \
+        arm64) rid=linux-arm64 ;; \
+        *) echo "Unsupported TARGETARCH '$TARGETARCH'" >&2; exit 1 ;; \
+    esac \
+    && /tools/dotnet-ef migrations bundle \
+        --project ChatHub.Notifications \
+        --startup-project ChatHub.Notifications \
         --configuration Release \
         --no-build \
         --target-runtime "$rid" \
@@ -59,3 +86,17 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 USER $APP_UID
 ENTRYPOINT ["dotnet", "ChatHub.WebAPI.dll"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS notifications-migrator
+WORKDIR /app
+COPY --from=notifications-bundle /app/efbundle .
+USER $APP_UID
+ENTRYPOINT ["./efbundle"]
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS notifications
+WORKDIR /app
+COPY --from=notifications-build /app/publish .
+ENV ASPNETCORE_HTTP_PORTS=8080
+EXPOSE 8080
+USER $APP_UID
+ENTRYPOINT ["dotnet", "ChatHub.Notifications.dll"]

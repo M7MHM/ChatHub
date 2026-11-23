@@ -80,16 +80,16 @@ public class ConversationMember : BaseAuditableEntity
         ClearedAtUtc = DateTime.UtcNow;
     }
 
-    public void Mute()
-    {
-        EnsureActive();
-        IsMuted = true;
-    }
+    public void Mute() => SetMuted(true);
 
-    public void Unmute()
+    public void Unmute() => SetMuted(false);
+
+    private void SetMuted(bool muted)
     {
         EnsureActive();
-        IsMuted = false;
+        if (IsMuted == muted) return;
+        IsMuted = muted;
+        AddDomainEvent(new MemberMuteChangedEvent(ConversationId, UserId, muted));
     }
 
     public void MarkAsDelivered(Message message)
@@ -108,7 +108,7 @@ public class ConversationMember : BaseAuditableEntity
         if (LastReadMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;
         LastReadMessageId = message.Id;
         LastReadMessageAtUtc = message.CreatedAtUtc;
-        AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow));
+        AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow, message.CreatedAtUtc));
     }
 
     private void AdvanceDelivered(Message message)

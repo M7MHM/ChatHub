@@ -30,6 +30,17 @@ public sealed class AuthTests(ApiFixture fixture) : ApiTestBase(fixture)
     }
 
     [Fact]
+    public async Task Register_LandlinePhone_Returns400WithTheMobileNumberMessage()
+    {
+        var response = await Api.PostAsync("/api/auth/register",
+            new { displayName = "Bob", phoneNumber = "0223456789", password = Password });
+
+        response.Status.ShouldBe(400);
+        response.HasError("PhoneNumber").ShouldBeTrue();
+        response.Text.ShouldContain("Enter a valid Egyptian mobile number, e.g. 01001234567");
+    }
+
+    [Fact]
     public async Task Register_DuplicateEmail_Returns409ProblemWithCodeAndTraceId()
     {
         await RegisterAsync("Alice", "alice@example.com");

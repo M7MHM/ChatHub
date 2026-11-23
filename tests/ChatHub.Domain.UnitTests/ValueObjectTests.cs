@@ -56,26 +56,83 @@ public sealed class EmailTests
 
 public sealed class PhoneNumberTests
 {
-    [Fact]
-    public void Create_FormattedNumber_IgnoresSpacesDashesAndParentheses()
-    {
-        var phone = PhoneNumber.Create("+20 (100) 123-4567");
-
-        phone.FullNumber.ShouldBe("+201001234567");
-        phone.ToString().ShouldBe("+201001234567");
-    }
-
     [Theory]
-    [InlineData("+12025550123", "1", "2025550123")]
-    [InlineData("+79161234567", "7", "9161234567")]
-    [InlineData("+201001234567", "20", "1001234567")]
-    [InlineData("+971501234567", "971", "501234567")]
-    public void Create_ValidNumber_SplitsTheCountryCode(string value, string countryCode, string nationalNumber)
+    [InlineData("01001234567")]
+    [InlineData("1001234567")]
+    [InlineData("+201001234567")]
+    [InlineData("+20 100 123 4567")]
+    [InlineData("+20 (100) 123-4567")]
+    [InlineData("0100-123-4567")]
+    [InlineData("00201001234567")]
+    public void Create_EgyptianMobileInAnyFormat_NormalizesToE164(string value)
     {
         var phone = PhoneNumber.Create(value);
 
-        phone.CountryCode.ShouldBe(countryCode);
-        phone.NationalNumber.ShouldBe(nationalNumber);
+        phone.FullNumber.ShouldBe("+201001234567");
+        phone.ToString().ShouldBe("+201001234567");
+        (phone.CountryCode, phone.NationalNumber, phone.IsValid).ShouldBe(("20", "1001234567", true));
+    }
+
+    [Theory]
+    [InlineData("01112223333", "+201112223333")]
+    [InlineData("01212345678", "+201212345678")]
+    [InlineData("01512345678", "+201512345678")]
+    public void Create_EachEgyptianMobileOperator_IsAccepted(string value, string expected)
+    {
+        PhoneNumber.Create(value).FullNumber.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("+12015550123", "1", "2015550123")]
+    [InlineData("+447911123456", "44", "7911123456")]
+    [InlineData("+79161234567", "7", "9161234567")]
+    [InlineData("+971501234567", "971", "501234567")]
+    public void Create_OtherCountryInInternationalForm_IsAccepted(string value, string countryCode, string nationalNumber)
+    {
+        var phone = PhoneNumber.Create(value);
+
+        phone.FullNumber.ShouldBe(value);
+        (phone.CountryCode, phone.NationalNumber).ShouldBe((countryCode, nationalNumber));
+    }
+
+    [Theory]
+    [InlineData("0100123456")]
+    [InlineData("010012345678")]
+    [InlineData("100123456")]
+    [InlineData("+20100123456")]
+    [InlineData("+2010012345678")]
+    [InlineData("01301234567")]
+    public void Create_InvalidLengthOrPrefix_ThrowsWithTheMobileMessage(string value)
+    {
+        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create(value))
+            .Message.ShouldBe(PhoneNumber.InvalidMessage);
+    }
+
+    [Theory]
+    [InlineData("0223456789")]
+    [InlineData("+20223456789")]
+    [InlineData("034567890")]
+    public void Create_EgyptianLandline_Throws(string value)
+    {
+        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create(value))
+            .Message.ShouldBe(PhoneNumber.InvalidMessage);
+    }
+
+    [Theory]
+    [InlineData("447911123456")]
+    [InlineData("971501234567")]
+    public void Create_ForeignNumberWithoutPlus_Throws(string value)
+    {
+        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create(value));
+    }
+
+    [Theory]
+    [InlineData("+20abc123456")]
+    [InlineData("0100abc4567")]
+    [InlineData("not a phone")]
+    public void Create_LettersOrGarbage_Throws(string value)
+    {
+        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create(value));
     }
 
     [Theory]
@@ -87,25 +144,35 @@ public sealed class PhoneNumberTests
     }
 
     [Fact]
-    public void Create_WithoutLeadingPlus_Throws()
+    public void Equality_SameNumberInLocalAndInternationalFormat_IsEqual()
     {
-        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create("201001234567"));
-    }
+        var local = PhoneNumber.Create("01001234567");
+        var international = PhoneNumber.Create("+20 100 123 4567");
 
-    [Theory]
-    [InlineData("+1234567")]
-    [InlineData("+1234567890123456")]
-    [InlineData("+0123456789")]
-    [InlineData("+20abc123456")]
-    public void Create_NotEightToFifteenE164Digits_Throws(string value)
-    {
-        Should.Throw<DomainRuleViolationException>(() => PhoneNumber.Create(value));
+        (local == international).ShouldBeTrue();
+        local.GetHashCode().ShouldBe(international.GetHashCode());
+        (local != PhoneNumber.Create("01001234568")).ShouldBeTrue();
     }
 
     [Fact]
-    public void Equality_SameNumberDifferentlyFormatted_IsEqual()
+    public void FromStorage_ValidE164Mobile_LoadsAsValid()
     {
-        (PhoneNumber.Create("+20 100 123 4567") == PhoneNumber.Create("+201001234567")).ShouldBeTrue();
+        var phone = PhoneNumber.FromStorage("+201001234567");
+
+        phone.ShouldBe(PhoneNumber.Create("01001234567"));
+        phone.IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("+20223456789")]
+    [InlineData("+2010012345")]
+    [InlineData("+99912345678")]
+    public void FromStorage_ValueTheOldRulesAllowed_LoadsUnchangedAndIsFlaggedInvalid(string stored)
+    {
+        var phone = PhoneNumber.FromStorage(stored);
+
+        phone.FullNumber.ShouldBe(stored);
+        phone.IsValid.ShouldBeFalse();
     }
 }
 

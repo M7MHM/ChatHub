@@ -18,4 +18,24 @@ public static class AuthErrors
 
     public static readonly Error InvalidCurrentPassword =
         Error.Validation("Auth.InvalidCurrentPassword", "The current password is incorrect.");
+
+    public static readonly Error NoEmailToVerify =
+        Error.Validation("Auth.NoEmailToVerify", "Your account has no email address to verify.");
+
+    public static readonly Error EmailAlreadyVerified =
+        Error.Conflict("Auth.EmailAlreadyVerified", "Your email address is already verified.");
+
+    public static readonly Error VerificationRequestsThrottled =
+        Error.TooManyRequests("Auth.VerificationThrottled",
+            "Too many verification emails were requested in the last hour. Try again later.");
+
+    public static readonly Error InvalidVerificationToken =
+        Error.Validation("Auth.InvalidVerificationToken", "The verification link is invalid.");
+
+    public static readonly Error VerificationTokenExpired =
+        Error.Validation("Auth.VerificationTokenExpired",
+            "The verification link has expired or was replaced by a newer one. Request a new one.");
+
+    public static readonly Error VerificationTokenUsed =
+        Error.Validation("Auth.VerificationTokenUsed", "The verification link was already used.");
 }

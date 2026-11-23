@@ -1,6 +1,11 @@
+using System.Text.Json;
+using ChatHub.Application.Common.Emails;
 using ChatHub.Application.IntegrationTests.Infrastructure;
+using ChatHub.Contracts;
+using UserProfileUpdated = ChatHub.Contracts.Events.UserProfileUpdated;
 using ChatHub.Domain.Enums;
 using ChatHub.Domain.ValueObjects;
+using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Seeder;
 using Microsoft.EntityFrameworkCore;
@@ -104,6 +109,16 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
     }
 
     [Fact]
+    public async Task Seed_SeededUsers_HaveAVerifiedEmailAndEmailNotificationsOn()
+    {
+        await SeedAsync();
+
+        var users = await QueryDbAsync(db => db.UserProfiles.AsNoTracking().ToListAsync());
+        users.Count.ShouldBe(Small.Users);
+        users.ShouldAllBe(u => u.IsEmailVerified && u.EmailNotificationsEnabled && u.EmailVerifiedAtUtc == u.CreatedAtUtc);
+    }
+
+    [Fact]
     public async Task Seed_SecondRun_InsertsNothing()
     {
         await SeedAsync();
@@ -136,6 +151,122 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
         (await QueryDbAsync(db => db.UserProfiles.SingleAsync())).Id.ShouldBe(olga);
         (await SeedAsync()).Skipped.ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task BackfillNotifications_QueuesOneUserProfileUpdatedPerLivingUserInBatches()
+    {
+        var anna = await CreateUserAsync("Anna");
+        var ben = await CreateUserAsync("Ben", phone: "+201001234567");
+        var cleo = await CreateUserAsync("Cleo");
+        var dan = await CreateUserAsync("Dan");
+        var gone = await CreateUserAsync("Gone");
+        await UseDbAsync(async db =>
+        {
+            (await db.UserProfiles.SingleAsync(u => u.Id == gone)).Delete();
+            await db.SaveChangesAsync();
+        });
+        await UseDbAsync(db => db.UserProfiles.Where(u => u.Id == anna)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailVerifiedAtUtc, (DateTime?)Clock.GetUtcNow().UtcDateTime)));
+        await UseDbAsync(db => db.UserProfiles.Where(u => u.Id == cleo)
+            .ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailNotificationsEnabled, false)));
+
+        BackfillResult result;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            result = await new NotificationBackfill(db, batchSize: 2, TextWriter.Null, Clock, Links).RunAsync();
+
+        (result.Users, result.Batches, result.UnsubscribeLinksIssued).ShouldBe((4, 2, 4));
+        var rows = await QueryDbAsync(db => db.OutboxMessages.AsNoTracking().ToListAsync());
+        rows.ShouldAllBe(r => r.Type == nameof(UserProfileUpdated) && r.RoutingKey == MessageRoutes.UserProfileUpdated &&
+                              r.ProcessedAtUtc == null);
+        var events = rows.Select(r => JsonSerializer.Deserialize<UserProfileUpdated>(r.Payload, MessageJson.Options)!).ToList();
+        events.Select(e => (e.UserId, e.Email, e.DisplayName, e.EmailVerified, e.EmailNotificationsEnabled)).ShouldBe(
+        [
+            (anna, "anna@example.com", "Anna", true, true),
+            (ben, null, "Ben", false, true),
+            (cleo, "cleo@example.com", "Cleo", false, false),
+            (dan, "dan@example.com", "Dan", false, true)
+        ], ignoreOrder: true);
+        events.ShouldAllBe(e => rows.Any(r => r.Id == e.MessageId));
+        var hashes = await QueryDbAsync(db => db.UserProfiles.AsNoTracking().ToDictionaryAsync(u => u.Id, u => u.UnsubscribeTokenHash));
+        foreach (var e in events)
+        {
+            var link = e.UnsubscribeLink.ShouldNotBeNull();
+            link.ShouldStartWith("https://api.chat.example.test/api/email/unsubscribe?token=");
+            OpaqueToken.Hash(link[(link.IndexOf("token=", StringComparison.Ordinal) + 6)..]).ShouldBe(hashes[e.UserId]);
+        }
+    }
+
+    [Fact]
+    public async Task BackfillNotifications_SecondRun_KeepsTheLinksUnlessAskedToRotate()
+    {
+        var anna = await CreateUserAsync("Anna");
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            await new NotificationBackfill(db, batchSize: 10, TextWriter.Null, Clock, Links).RunAsync();
+        var firstHash = await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == anna).Select(u => u.UnsubscribeTokenHash).SingleAsync());
+        await UseDbAsync(db => db.OutboxMessages.ExecuteDeleteAsync());
+
+        BackfillResult again;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            again = await new NotificationBackfill(db, batchSize: 10, TextWriter.Null, Clock, Links).RunAsync();
+
+        again.UnsubscribeLinksIssued.ShouldBe(0);
+        Deserialize(await QueryDbAsync(db => db.OutboxMessages.AsNoTracking().SingleAsync())).UnsubscribeLink.ShouldBeNull();
+        await UseDbAsync(db => db.OutboxMessages.ExecuteDeleteAsync());
+
+        BackfillResult rotated;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            rotated = await new NotificationBackfill(db, batchSize: 10, TextWriter.Null, Clock, Links, rotateUnsubscribeLinks: true).RunAsync();
+
+        rotated.UnsubscribeLinksIssued.ShouldBe(1);
+        Deserialize(await QueryDbAsync(db => db.OutboxMessages.AsNoTracking().SingleAsync())).UnsubscribeLink.ShouldNotBeNull();
+        (await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == anna).Select(u => u.UnsubscribeTokenHash).SingleAsync()))
+            .ShouldNotBe(firstHash);
+    }
+
+    [Fact]
+    public async Task VerifySeeded_MarksOnlyUnverifiedSeedUsersAsVerified()
+    {
+        await SeedAsync();
+        await UseDbAsync(db => db.UserProfiles.ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailVerifiedAtUtc, (DateTime?)null)));
+        var outsider = await CreateUserAsync("Olga");
+        var phoneOnly = await CreateUserAsync("Pat", phone: "01001234567");
+
+        int verified;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            verified = await new DataSeeder(db, Small with { VerifySeeded = true }, TextWriter.Null).VerifySeededUsersAsync();
+
+        verified.ShouldBe(Small.Users);
+        var users = await QueryDbAsync(db => db.UserProfiles.AsNoTracking().ToListAsync());
+        users.Where(u => u.Id != outsider && u.Id != phoneOnly).ShouldAllBe(u => u.EmailVerifiedAtUtc == u.CreatedAtUtc);
+        users.Single(u => u.Id == outsider).IsEmailVerified.ShouldBeFalse();
+        users.Single(u => u.Id == phoneOnly).IsEmailVerified.ShouldBeFalse();
+        SeedOptions.Parse(["--confirm", "--verify-seeded", "--backfill-notifications"]).VerifySeeded.ShouldBeTrue();
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--verify-seeded", "--reset"]));
+    }
+
+    [Fact]
+    public void BackfillNotifications_CannotBeCombinedWithReset()
+    {
+        SeedOptions.Parse(["--confirm", "--backfill-notifications"]).BackfillNotifications.ShouldBeTrue();
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--backfill-notifications", "--reset"]))
+            .Message.ShouldContain("cannot be combined with --reset");
+    }
+
+    [Fact]
+    public void BackfillNotifications_ParsesThePublicUrlAndRotationAndRejectsThemOutsideABackfill()
+    {
+        var options = SeedOptions.Parse(["--confirm", "--backfill-notifications", "--rotate-unsubscribe-links",
+            "--public-api-base-url", "https://api.chat.example.test"]);
+
+        (options.RotateUnsubscribeLinks, options.PublicApiBaseUrl).ShouldBe((true, "https://api.chat.example.test"));
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--rotate-unsubscribe-links"]));
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--backfill-notifications", "--public-api-base-url", "ftp://x"]));
+    }
+
+    private static readonly EmailLinks Links = new("https://api.chat.example.test");
+
+    private static UserProfileUpdated Deserialize(ChatHub.Infrastructure.Messaging.OutboxMessage row) =>
+        JsonSerializer.Deserialize<UserProfileUpdated>(row.Payload, MessageJson.Options)!;
 
     private async Task<SeedResult> SeedAsync()
     {

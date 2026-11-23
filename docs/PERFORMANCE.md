@@ -286,9 +286,11 @@ No index was added: the new plan uses the existing `(ConversationId, UserId)` an
 ### Connection budget
 
 ```
-api replicas × DB_MAX_POOL_SIZE + headroom  ≤  POSTGRES_MAX_CONNECTIONS
-          2  ×        30        +    40     ≤  100
+api replicas × DB_MAX_POOL_SIZE + NOTIFICATIONS_DB_MAX_POOL_SIZE + headroom  ≤  POSTGRES_MAX_CONNECTIONS
+          2  ×        30        +               5                +    35     ≤  100
 ```
+
+- **Notifications worker:** at most four connections in use at once (consumer, dispatcher, retention cleanup, health check), so its pool is capped at 5.
 
 - **Headroom** covers the migrator (1 connection), the seeder (1), psql / `pg_dump` / monitoring (a few), and a replica that is being recreated while the old one still holds its pool. The API connects as the PostgreSQL superuser, so `superuser_reserved_connections` adds nothing for it.
 - **Why 30:** that is plenty for a 1-CPU replica. The most a replica held after any run was 30 (configuration 1 at 70 it/s, and the collapsed 140 it/s run, where the cap made requests wait instead of opening backends). At 434 req/s over two replicas they held 19 + 19 and 30 + 23. When every pooled connection is busy, Npgsql queues the request (up to the 15 s `Timeout`), which is cheaper than another PostgreSQL backend on a database that is already busy.
@@ -361,6 +363,76 @@ powershell -ExecutionPolicy Bypass -File loadtest\run.ps1 -Mode single -Replicas
 ```
 
 The A/B runs themselves were made before `DB_MAX_AUTO_PREPARE` existed, by appending the options to `DB_MAX_POOL_SIZE` (e.g. `30;Max Auto Prepare=50`), which produces the same connection string.
+
+### Outbox impact (2026-11-22)
+
+Transactional outbox + RabbitMQ publisher ([MESSAGING.md](MESSAGING.md)). 2 replicas, cache ON, 70 it/s, `read-heavy+realtime` (`RT_DURATION=185`, so the realtime senders cover the whole steady phase), same phases as the matrix. A temporary durable queue was bound to `#` so events were routable, as they will be once the notification worker exists. Single runs; the control (`MESSAGING_ENABLED=false`) ran on the same stack right before the messaging run.
+
+| p95 (ms) | Matrix config 3, read-heavy only | Control, messaging off | Messaging on |
+|---|---|---|---|
+| `GET /me` | 5.2 | 3.7 | 3.8 |
+| `GET /conversations` | 12.6 | 18.0 | 24.7 |
+| `GET /…/messages` | 10.0 | 7.2 | 7.8 |
+| `POST /…/messages` | 27.3 | 22.1 | 50.9 |
+| All requests (p99) | 11.3 (48.1) | 10.6 (41.2) | 14.6 (61.2) |
+| Realtime delivery p95 | – | 58 | 63 |
+| API / PostgreSQL / RabbitMQ CPU | 31–36 / 20.5 / – | 41 / 21.6 / 1.1 | 43–45 / 27.2 / 1.5 |
+
+0 errors and all thresholds passed in every run. 3,262 events were published exactly once, none retried; publish lag p50 417 ms, p95 907 ms (the 1 s poll interval). Per message sent, PostgreSQL does one enrichment query (0.43 ms mean) and one outbox INSERT (0.06 ms); the publisher's claim and update statements are not in the top 10. The send p95 rose 2.3× (22 → 51 ms), just above the ~2× noise band of single runs: likely a real but small cost of the extra query, INSERT and serialization on the send path, not confirmed by repeats. Reads are unchanged within noise. A first messaging run, with `rabbitmq-diagnostics` as the compose health check, measured an all-request p95 of 28.9 ms: every probe started an Erlang VM using up to 2.4 cores for a second or two, every ~12 s. The health check is now a TCP probe and RabbitMQ stays under 5% CPU.
+
+### Notification service impact (2026-11-22)
+
+Same scenario and parameters as the outbox runs above. The [notification service](NOTIFICATIONS.md) ran with production timings (120 s delay, 15 min cooldown) after the backfill, so every seeded recipient is known and has an email address. Single runs.
+
+| p95 (ms) | Control, messaging off | Messaging on (phase 1) | Notifications running | Notifications stopped |
+|---|---|---|---|---|
+| `GET /me` | 3.7 | 3.8 | 34.2 | 3.9 |
+| `GET /conversations` | 18.0 | 24.7 | 47.8 | 17.0 |
+| `GET /…/messages` | 7.2 | 7.8 | 43.2 | 8.3 |
+| `POST /…/messages` | 22.1 | 50.9 | 99.3 | 29.6 |
+| All requests (p99) | 10.6 (41.2) | 14.6 (61.2) | 45.2 (102.3) | 12.9 (41.5) |
+| Realtime delivery p95 | 58 | 63 | 96 | 44 |
+| API / PostgreSQL CPU | 41 / 21.6 | 43–45 / 27.2 | 55–56 / 43.7 | 41–42 / 25.8 |
+| Notifications / Mailpit CPU | – | – | 28.2 (max 162) / 7.5 | stopped / 0.3 |
+
+0 errors, 0 lost realtime messages and all thresholds passed in every run.
+
+- **The API's own messaging cost is small.** With the worker stopped (events queue in RabbitMQ), the send p95 is 1.34× the control. Per send, the API does one enrichment query (0.52 ms) and one outbox INSERT (0.07 ms); the publisher's claims are not in the top 10. The 2.3× of the phase 1 run did not reproduce, so it was most likely run-to-run noise.
+- **The slowdown with the worker running is contention on the shared laptop and PostgreSQL server.** `GET /me` touches neither the outbox nor RabbitMQ, and its p95 went from 3.9 to 34 ms.
+  - During the run the worker consumed 4,202 events. Its fold statement (0.74 ms mean) was the third-largest consumer of database time on the server.
+  - It then sent 2,440 digests covering 51,086 messages, 2,063 of them in one minute, when the warm-up's digests came due. Each email opened its own SMTP connection.
+  - This load test is close to the worst case: every recipient has an email address and nobody reads anything.
+- Every run also shows the API ~20 points busier in the first 40 s of the steady phase than in the rest (warm-up after the replicas are recreated), so differences under ~2× remain noise.
+- Not changed in code. The fixes are operational: give the worker its own CPU (another host, or a CPU limit like the API replicas'). If it must share, rate-limit sends or reuse one SMTP connection per batch; see [NOTIFICATIONS.md](NOTIFICATIONS.md).
+
+### Notification limits and new events (2026-11-23)
+
+The same scenario again (2 replicas, cache ON, 70 it/s, `read-heavy+realtime`, `RT_DURATION=185`, same phases), after the notification pass that added the sending limits (20 emails a minute, 15 of them digests; 250 a day, 200 digests), the reused SMTP connection, the worker's 0.25 CPU / 192M limit and pool of 5, and the new events (`message.deleted`, `message.edited`, leave/kick, mute, `user.status-changed`). The 1,000 seed users were marked verified and backfilled first (`--verify-seeded --backfill-notifications`), and the worker ran as Development so their digests were allowed (`NOTIFICATIONS_ENVIRONMENT=Development`), with production timings (120 s delay, 15 min cooldown). Result files `notif3-r2-70`, `notif3b-r2-70`, `notif3-stopped-r2-70`.
+
+| p95 (ms) | 11-22 control, messaging off | 11-22 worker running | 11-22 worker stopped | A: worker, seed mail suppressed | **B: worker sending, limited** | C: worker stopped, right after B |
+|---|---|---|---|---|---|---|
+| `GET /me` | 3.7 | 34.2 | 3.9 | 34.3 | 78.5 | 1,397.7 |
+| `GET /conversations` | 18.0 | 47.8 | 17.0 | 43.4 | 103.1 | 1,741.9 |
+| `GET /…/messages` | 7.2 | 43.2 | 8.3 | 27.5 | 93.1 | 919.6 |
+| `POST /…/messages` | 22.1 | 99.3 | 29.6 | 75.1 | 198.6 | 817.2 |
+| All requests (p99) | 10.6 (41.2) | 45.2 (102.3) | 12.9 (41.5) | 37.2 (1,343.9) | 95.8 (221.1) | 1,226.4 (3,407.3) |
+| Dropped iterations | – | – | – | 83 | 0 | 424 |
+| Realtime delivery p95 | 58 | 96 | 44 | 55 | 308 | 3,555 |
+| API / PostgreSQL CPU (avg %) | 41 / 21.6 | 55–56 / 43.7 | 41–42 / 25.8 | 45 / 35.3 | 61–66 / 50.8 | 90–96 / 65.7 |
+| Worker CPU avg (max) / memory | – | 28.2 (162) / – | stopped | 5.9 (18.9) / 78 MiB | 11.5 (26.0) / 87 MiB (max 94) | stopped |
+| Emails sent | – | 2,440 digests, 2,063 in one minute | – | 0 | 15 digests a minute | – |
+| Thresholds | passed | passed | passed | passed | realtime p95 failed | 6 failed |
+
+0 errors and 0 lost realtime messages in every run.
+
+- **Run A is invalid for the worker comparison.** `.dockerignore` keeps `appsettings.Development.json` out of the image, so the worker in Development fell back to the reserved-domain list and suppressed every `@chathub.test` recipient: it consumed all 3,343 events but created no digest. All containers also spiked together at two moments (API at its 1-CPU cap, PostgreSQL 164%, Redis and nginx too), a host hiccup behind the 6.4 s maximum and the 83 dropped iterations. The default is now decided from the environment in code (see [NOTIFICATIONS.md](NOTIFICATIONS.md#suppressed-domains)), and run B is the re-run.
+- **The host was not in the state of 11-22.** Run C, with the worker stopped, ran right after B and was 13× slower than B: the API needed 90–96% CPU for the same requests that took 41% in the 11-22 stopped run, k6 itself peaked at 5.2 cores, and the laptop had 1.3 GB of 15.7 GB RAM free with desktop applications open. The API latencies of this session therefore cannot be compared with the 11-22 baselines, nor reliably with each other; whether "worker running" now matches "worker stopped" could not be confirmed or refuted on this machine today. Repeat B and C back to back on an idle machine before drawing that conclusion.
+- **What the runs do show about the worker:**
+  - It stayed within its limit: 11.5% CPU on average with 5 of 58 samples at the 0.25 CPU cap (26%), against 28.2% average and 162% peaks in the 11-22 run without a limit; memory 87 MiB average, 94 MiB at most, of 192M.
+  - The sending limit held: exactly 15 digests a minute during and after the run, instead of 2,063 in one minute. 2,347 due digests were still waiting at the end; with 200 digests a day, most of them would expire unsent after 24 h, which is the intended behaviour on Brevo's free tier (and `/health/ready` reports `sending` Degraded after 30 minutes).
+  - One reused SMTP connection: Mailpit used 0.5% CPU, against 7.5% (max 29.5%) when every email opened its own connection.
+  - In PostgreSQL the worker's fold statement took 0.80 ms on average (2.5 s in total, 0.74 ms in the 11-22 run); the new statements (message snapshot upsert, usage count, presence and per-recipient queries) are not in the top 10 (each under 0.5 s in total).
+- **Presence volume:** 100 `UserStatusChanged` events per run, one per connect and one per disconnect of the 50 realtime listeners, against 3,201 `MessageSent`: 3% of the outbox and broker traffic. Read-heavy users do not open sockets, and the events are raised only on first-connection / last-disconnection transitions, not per request.
 
 ---
 

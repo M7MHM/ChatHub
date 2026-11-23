@@ -216,6 +216,7 @@ public sealed class ConversationMemberTests
         var read = member.DomainEvents.Last().ShouldBeOfType<MessageReadEvent>();
         read.MessageId.ShouldBe(message.Id);
         read.UserId.ShouldBe(_userId);
+        read.ReadUpToUtc.ShouldBe(message.CreatedAtUtc);
     }
 
     [Fact]
@@ -297,5 +298,22 @@ public sealed class ConversationMemberTests
         var member = ConversationMember.Create(_conversationId, _userId);
 
         Should.Throw<ArgumentNullException>(() => member.MarkAsRead(null!));
+    }
+
+    [Fact]
+    public void MuteAndUnmute_RaiseMemberMuteChangedOnlyWhenTheStateChanges()
+    {
+        var member = ConversationMember.Create(Guid.NewGuid(), Guid.NewGuid());
+
+        member.Mute();
+        member.Mute();
+        member.Unmute();
+        member.Unmute();
+
+        member.DomainEvents.ShouldBe(
+        [
+            new MemberMuteChangedEvent(member.ConversationId, member.UserId, true),
+            new MemberMuteChangedEvent(member.ConversationId, member.UserId, false)
+        ]);
     }
 }

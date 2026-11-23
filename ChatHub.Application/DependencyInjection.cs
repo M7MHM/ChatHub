@@ -22,6 +22,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<AuthTokenService>();
+        services.AddScoped<EmailTokenService>();
         services.AddSingleton<FileUrls>();
 
         return services;

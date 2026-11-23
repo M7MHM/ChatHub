@@ -43,6 +43,10 @@ Content-Type: application/json
 }
 
 ###
+# Phone numbers: an Egyptian mobile in local form (01001234567), without the 0 (1001234567, what a client with a fixed
+# +20 prefix sends) or international (+201001234567); other countries need the full +<country code> form. Landlines and
+# wrong lengths get 400 "Enter a valid Egyptian mobile number, e.g. 01001234567". Numbers are stored and matched in E.164,
+# so any of these forms finds the same user at register and login. Phones are never verified (no SMS, by design).
 # @name registerBob
 POST {{baseUrl}}/api/auth/register
 Content-Type: application/json
@@ -50,7 +54,7 @@ Content-Type: application/json
 {
   "displayName": "Bob",
   "email": null,
-  "phoneNumber": "+20 100 123 4567",
+  "phoneNumber": "01001234567",
   "password": "secret123"
 }
 
@@ -92,6 +96,42 @@ Content-Type: application/json
   "refreshToken": "{{refresh.response.body.$.refreshToken}}"
 }
 
+### ───────────── Email verification (request: 5 / minute per IP and 3 / hour per user; links: 30 / minute per IP) ─────────────
+# Registering with an email already sends a verification email (see Mailpit, http://127.0.0.1:8025, under docker compose).
+# The link in it is {{baseUrl}}/api/auth/verify-email?token=... and works once, for 24 hours. Requesting a new one
+# disables the older links. GET /api/users/me shows "emailVerified". Digests are only emailed to verified addresses.
+
+# Resend: 202 with the address and the expiry; 400 Auth.NoEmailToVerify, 409 Auth.EmailAlreadyVerified,
+# 429 Auth.VerificationThrottled
+POST {{baseUrl}}/api/auth/email-verification
+Authorization: Bearer {{accessToken}}
+
+###
+# What the link in the email opens: verifies and answers with a small HTML page (success, already verified,
+# expired or replaced 410, invalid 400). Paste the token from the email.
+GET {{baseUrl}}/api/auth/verify-email?token=paste-the-token-from-the-email
+
+###
+# The same for a frontend that reads the token from its own page: 204, or a problem with Auth.InvalidVerificationToken,
+# Auth.VerificationTokenExpired, Auth.VerificationTokenUsed or Auth.EmailAlreadyVerified.
+POST {{baseUrl}}/api/auth/verify-email
+Content-Type: application/json
+
+{
+  "token": "paste-the-token-from-the-email"
+}
+
+### ───────────── Unsubscribe (no login; every digest email links here) ─────────────
+# GET shows a confirmation page with a button and changes nothing (mail scanners open links).
+GET {{baseUrl}}/api/email/unsubscribe?token=paste-the-token-from-the-digest
+
+###
+# What the button and mail clients that support RFC 8058 one-click unsubscribe send. Idempotent; turns digests off.
+POST {{baseUrl}}/api/email/unsubscribe?token=paste-the-token-from-the-digest
+Content-Type: application/x-www-form-urlencoded
+
+List-Unsubscribe=One-Click
+
 ### ───────────── Users ─────────────
 
 GET {{baseUrl}}/api/users/me
@@ -107,6 +147,16 @@ Content-Type: application/json
   "bio": "Hello there",
   "avatarFileId": null,
   "removeAvatar": false
+}
+
+###
+# Email digests about unread messages on or off. Verification emails are always sent.
+PUT {{baseUrl}}/api/users/me/email-preferences
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "emailNotificationsEnabled": false
 }
 
 ###

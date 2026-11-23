@@ -37,6 +37,60 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
         result.ShouldFailWith(AuthErrors.ContactInUse);
     }
 
+    [Theory]
+    [InlineData("01001234567", "+201001234567")]
+    [InlineData("1001234567", "+201001234567")]
+    [InlineData("+201001234567", "+201001234567")]
+    [InlineData("+447911123456", "+447911123456")]
+    public async Task Register_PhoneInAnAcceptedFormat_StoresItInE164(string input, string stored)
+    {
+        var bob = await RegisterAsync("Bob", phone: input);
+
+        var phone = await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == bob.User.Id).Select(u => u.PhoneNumber).SingleAsync());
+        phone!.FullNumber.ShouldBe(stored);
+    }
+
+    [Theory]
+    [InlineData("1001234567")]
+    [InlineData("+201001234567")]
+    [InlineData("+20 100 123 4567")]
+    [InlineData("00201001234567")]
+    public async Task Register_SamePhoneTypedInAnotherFormat_ReturnsContactInUse(string otherFormat)
+    {
+        await RegisterAsync("Bob", phone: "01001234567");
+
+        var result = await SendAsync(null, new RegisterCommand("X", null, otherFormat, Password));
+
+        result.ShouldFailWith(AuthErrors.ContactInUse);
+    }
+
+    [Theory]
+    [InlineData("0100123456")]
+    [InlineData("010012345678")]
+    [InlineData("0223456789")]
+    [InlineData("447911123456")]
+    public async Task Register_WrongLengthLandlineOrForeignWithoutPlus_ThrowsValidationExceptionWithTheMobileMessage(string phone)
+    {
+        var exception = await Should.ThrowAsync<ValidationException>(() =>
+            SendAsync(null, new RegisterCommand("X", null, phone, Password)));
+
+        exception.Errors["PhoneNumber"].ShouldBe(["Enter a valid Egyptian mobile number, e.g. 01001234567"]);
+    }
+
+    [Fact]
+    public async Task Login_ByEmail_UserWithAPhoneStoredUnderTheOldRules_StillLoads()
+    {
+        var alice = await CreateUserAsync("Alice", "alice@example.com");
+        await UseDbAsync(db => db.Database.ExecuteSqlAsync(
+            $"""UPDATE "UserProfiles" SET "PhoneNumber" = '+20223456789' WHERE "Id" = {alice}"""));
+
+        var result = await SendAsync(null, new LoginCommand("alice@example.com", Password));
+
+        result.ShouldSucceed().User.Id.ShouldBe(alice);
+        var phone = await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == alice).Select(u => u.PhoneNumber).SingleAsync());
+        (phone!.FullNumber, phone.IsValid).ShouldBe(("+20223456789", false));
+    }
+
     [Fact]
     public async Task Register_MissingNameContactAndShortPassword_ThrowsValidationException()
     {
@@ -72,6 +126,20 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
         var bob = await RegisterAsync("Bob Builder", phone: "+20 100 123 4567");
 
         var result = await SendAsync(null, new LoginCommand("+20 (100) 123-4567", Password));
+
+        result.ShouldSucceed().User.Id.ShouldBe(bob.User.Id);
+    }
+
+    [Theory]
+    [InlineData("01001234567")]
+    [InlineData("1001234567")]
+    [InlineData("+201001234567")]
+    [InlineData("+20 (100) 123-4567")]
+    public async Task Login_PhoneInAnyAcceptedFormat_SignsInThatUser(string identifier)
+    {
+        var bob = await RegisterAsync("Bob", phone: "+201001234567");
+
+        var result = await SendAsync(null, new LoginCommand(identifier, Password));
 
         result.ShouldSucceed().User.Id.ShouldBe(bob.User.Id);
     }

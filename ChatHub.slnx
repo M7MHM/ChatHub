@@ -5,12 +5,15 @@
     <Project Path="tests/ChatHub.Api.IntegrationTests/ChatHub.Api.IntegrationTests.csproj" />
     <Project Path="tests/ChatHub.Application.IntegrationTests/ChatHub.Application.IntegrationTests.csproj" />
     <Project Path="tests/ChatHub.Domain.UnitTests/ChatHub.Domain.UnitTests.csproj" />
+    <Project Path="tests/ChatHub.Notifications.Tests/ChatHub.Notifications.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/ChatHub.Seeder/ChatHub.Seeder.csproj" />
   </Folder>
   <Project Path="ChatHub.Application/ChatHub.Application.csproj" />
+  <Project Path="ChatHub.Contracts/ChatHub.Contracts.csproj" />
   <Project Path="ChatHub.Domain/ChatHub.Domain.csproj" />
   <Project Path="ChatHub.Infrastructure/ChatHub.Infrastructure.csproj" />
+  <Project Path="ChatHub.Notifications/ChatHub.Notifications.csproj" />
   <Project Path="ChatHub.WebAPI/ChatHub.WebAPI.csproj" />
 </Solution>

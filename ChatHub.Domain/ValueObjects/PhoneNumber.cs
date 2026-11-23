@@ -1,49 +1,87 @@
 using ChatHub.Domain.Common;
 using ChatHub.Domain.Exceptions;
+using PhoneNumbers;
+using LibPhoneNumber = PhoneNumbers.PhoneNumber;
 
 namespace ChatHub.Domain.ValueObjects;
 
 public sealed class PhoneNumber : ValueObject
 {
-    private static readonly HashSet<string> ThreeDigitPrefixes =
-    [
-        "21", "22", "23", "24", "25", "26", "29", "35", "37", "38", "42",
-        "50", "59", "67", "68", "69", "85", "88", "96", "97", "99"
-    ];
+    public const string DefaultRegion = "EG";
+    public const string InvalidMessage = "Enter a valid Egyptian mobile number, e.g. 01001234567";
 
-    private PhoneNumber(string countryCode, string nationalNumber)
+    private static readonly PhoneNumberUtil Util = PhoneNumberUtil.GetInstance();
+
+    private PhoneNumber(string fullNumber, string countryCode, string nationalNumber, bool isValid)
     {
+        FullNumber = fullNumber;
         CountryCode = countryCode;
         NationalNumber = nationalNumber;
+        IsValid = isValid;
     }
 
+    public string FullNumber { get; }
     public string CountryCode { get; }
     public string NationalNumber { get; }
-    public string FullNumber => $"+{CountryCode}{NationalNumber}";
+    public bool IsValid { get; }
 
-    /// <summary>Creates a phone number from E.164 input (e.g. "+201001234567"). Spaces, dashes and parentheses are ignored.</summary>
     public static PhoneNumber Create(string phone)
     {
         if (string.IsNullOrWhiteSpace(phone))
             throw new DomainRuleViolationException("Phone number is required.");
 
-        var cleaned = new string(phone.Where(c => c is not (' ' or '-' or '(' or ')')).ToArray());
-        if (!cleaned.StartsWith('+'))
-            throw new DomainRuleViolationException("Phone number must start with '+' and a country code.");
+        if (!TryParse(phone, out var parsed) || !IsMobile(parsed))
+            throw new DomainRuleViolationException(InvalidMessage);
 
-        var digits = cleaned[1..];
-        if (digits.Length is < 8 or > 15 || !digits.All(char.IsAsciiDigit) || digits[0] == '0')
-            throw new DomainRuleViolationException("Phone number must contain 8 to 15 digits in E.164 format.");
-
-        var codeLength = digits[0] is '1' or '7' ? 1 : ThreeDigitPrefixes.Contains(digits[..2]) ? 3 : 2;
-        return new PhoneNumber(digits[..codeLength], digits[codeLength..]);
+        return From(parsed, isValid: true);
     }
+
+    public static PhoneNumber FromStorage(string stored)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(stored);
+
+        if (TryParse(stored, out var parsed) && Util.IsValidNumber(parsed))
+        {
+            var normalized = From(parsed, IsMobile(parsed));
+            if (normalized.FullNumber == stored) return normalized;
+        }
+
+        var digits = stored.TrimStart('+');
+        return new PhoneNumber(stored, string.Empty, digits, isValid: false);
+    }
+
+    private static bool TryParse(string phone, out LibPhoneNumber parsed)
+    {
+        parsed = null!;
+        var trimmed = phone.Trim();
+        if (trimmed.Length > 32 || !trimmed.All(c => char.IsAsciiDigit(c) || c is ' ' or '-' or '(' or ')' or '.' or '+'))
+            return false;
+
+        try
+        {
+            parsed = Util.Parse(trimmed, DefaultRegion);
+            return true;
+        }
+        catch (NumberParseException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsMobile(LibPhoneNumber parsed) =>
+        Util.IsValidNumber(parsed) &&
+        Util.GetNumberType(parsed) is PhoneNumberType.MOBILE or PhoneNumberType.FIXED_LINE_OR_MOBILE;
+
+    private static PhoneNumber From(LibPhoneNumber parsed, bool isValid) =>
+        new(Util.Format(parsed, PhoneNumberFormat.E164),
+            parsed.CountryCode.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Util.GetNationalSignificantNumber(parsed),
+            isValid);
 
     public override string ToString() => FullNumber;
 
     protected override IEnumerable<object?> GetEqualityComponents()
     {
-        yield return CountryCode;
-        yield return NationalNumber;
+        yield return FullNumber;
     }
 }
