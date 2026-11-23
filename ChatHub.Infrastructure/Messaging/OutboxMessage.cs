@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ChatHub.Contracts;
+using ChatHub.Contracts.Events;
 
 namespace ChatHub.Infrastructure.Messaging;
 
@@ -8,6 +9,10 @@ public sealed class OutboxMessage
     public const int MaxTypeLength = 100;
     public const int MaxRoutingKeyLength = 100;
     public const int MaxErrorLength = 500;
+    public const string RedactedPayload = "{}";
+
+    public static readonly string[] RedactedOncePublished =
+        [nameof(EmailVerificationRequested), nameof(UserRegistered), nameof(UserProfileUpdated)];
 
     private OutboxMessage() { }
 

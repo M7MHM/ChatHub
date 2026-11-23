@@ -24,6 +24,7 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
             recipient.Property(r => r.UserId).ValueGeneratedNever();
             recipient.Property(r => r.Email).HasMaxLength(Recipient.MaxEmailLength);
             recipient.Property(r => r.DisplayName).HasMaxLength(Recipient.MaxDisplayNameLength).IsRequired();
+            recipient.Property(r => r.UnsubscribeLink).HasMaxLength(Recipient.MaxLinkLength);
         });
 
         modelBuilder.Entity<ProcessedMessage>(message =>
@@ -72,6 +73,7 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
             sent.HasKey(s => s.Id);
             sent.Property(s => s.Id).ValueGeneratedNever();
             sent.Property(s => s.Channel).HasMaxLength(SentNotification.MaxChannelLength).IsRequired();
+            sent.Property(s => s.Kind).HasConversion<string>().HasMaxLength(SentNotification.MaxKindLength);
             sent.HasIndex(s => new { s.UserId, s.SentAtUtc });
             sent.HasIndex(s => s.SentAtUtc);
         });

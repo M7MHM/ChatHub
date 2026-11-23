@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Transactional;
 using MailKit;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -12,6 +13,10 @@ namespace ChatHub.Notifications.Channels.Email;
 public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
 {
     public const string ChannelName = "email";
+    public const string KindHeader = "X-ChatHub-Kind";
+    public const string ListUnsubscribeHeader = "List-Unsubscribe";
+    public const string ListUnsubscribePostHeader = "List-Unsubscribe-Post";
+    public const string ListUnsubscribeOneClick = "List-Unsubscribe=One-Click";
 
     private static readonly TimeSpan QuitTimeout = TimeSpan.FromSeconds(5);
 
@@ -34,9 +39,16 @@ public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
 
     public string Name => ChannelName;
 
-    public bool CanDeliverTo(Recipient recipient) => !recipient.IsDeleted && !string.IsNullOrWhiteSpace(recipient.Email);
+    public bool CanDeliverTo(Recipient recipient) => recipient.CanReceiveEmailDigests;
 
-    public async Task SendAsync(DigestNotification notification, CancellationToken cancellationToken)
+    public bool CanDeliver(Notification notification) => notification switch
+    {
+        DigestNotification digest => CanDeliverTo(digest.Recipient),
+        EmailVerificationNotification verification => !string.IsNullOrWhiteSpace(verification.Email),
+        _ => false
+    };
+
+    public async Task SendAsync(Notification notification, CancellationToken cancellationToken)
     {
         var message = BuildMessage(notification);
 
@@ -91,16 +103,35 @@ public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
         }
     }
 
-    private MimeMessage BuildMessage(DigestNotification notification)
+    private MimeMessage BuildMessage(Notification notification)
     {
-        var email = DigestEmailTemplate.Render(notification);
-
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(settings.FromName, settings.FromAddress));
-        message.To.Add(new MailboxAddress(notification.Recipient.DisplayName,
-            notification.Recipient.Email ?? throw new InvalidOperationException("The recipient has no email address.")));
+
+        RenderedEmail email;
+        switch (notification)
+        {
+            case DigestNotification digest:
+                email = DigestEmailTemplate.Render(digest);
+                message.To.Add(new MailboxAddress(digest.Recipient.DisplayName,
+                    digest.Recipient.Email ?? throw new InvalidOperationException("The recipient has no email address.")));
+                message.Headers.Add("X-ChatHub-Conversation", digest.ConversationId.ToString());
+                if (digest.Recipient.UnsubscribeLink is { } unsubscribe)
+                {
+                    message.Headers.Add(ListUnsubscribeHeader, $"<{unsubscribe}>");
+                    message.Headers.Add(ListUnsubscribePostHeader, ListUnsubscribeOneClick);
+                }
+                break;
+            case EmailVerificationNotification verification:
+                email = VerificationEmailTemplate.Render(verification);
+                message.To.Add(new MailboxAddress(verification.DisplayName, verification.Email));
+                break;
+            default:
+                throw new NotSupportedException($"The email channel cannot send {notification.GetType().Name}.");
+        }
+
+        message.Headers.Add(KindHeader, notification.Kind.ToString());
         message.Subject = email.Subject;
-        message.Headers.Add("X-ChatHub-Conversation", notification.ConversationId.ToString());
         message.Body = new BodyBuilder { TextBody = email.Text, HtmlBody = email.Html }.ToMessageBody();
         return message;
     }

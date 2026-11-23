@@ -41,9 +41,10 @@ Exchange `chathub.events` (topic, durable). The AMQP `type` property is the reco
 |---|---|---|---|
 | `message.sent` | `MessageSent` | `Message.Create` (`MessageSentEvent`), i.e. `SendMessage` | `chatMessageId`, `conversationId`, `conversationType` (`Direct`/`Group`), `conversationTitle` (groups only), `senderId`, `senderDisplayName`, `preview`, `sentAtUtc`, `recipientUserIds`, `mutedRecipientUserIds` |
 | `conversation.read` | `ConversationRead` | `ConversationMember.MarkAsRead` (`MessageReadEvent`), only when the read pointer moves forward | `conversationId`, `userId`, `readUpToUtc` |
-| `user.registered` | `UserRegistered` | `UserProfile.Register` (`UserRegisteredEvent`), i.e. `Register` | `userId`, `email` (null for phone-only accounts), `displayName` |
-| `user.profile-updated` | `UserProfileUpdated` | `UpdateProfile`, `ChangeEmail`, `ChangePhoneNumber` (`UserProfileUpdatedEvent`), only when something changed | `userId`, `email`, `displayName` (current values) |
+| `user.registered` | `UserRegistered` | `UserProfile.Register` (`UserRegisteredEvent`), i.e. `Register` | `userId`, `email` (null for phone-only accounts), `displayName`, `emailVerified`, `emailNotificationsEnabled`, `unsubscribeLink` |
+| `user.profile-updated` | `UserProfileUpdated` | `UpdateProfile`, `ChangeEmail`, `ChangePhoneNumber` (`UserProfileUpdatedEvent`), `VerifyEmail` (`EmailVerifiedEvent`), `UpdateEmailPreferences` and `Unsubscribe` (`EmailNotificationsChangedEvent`), a new unsubscribe token (`UnsubscribeTokenIssuedEvent`), only when something changed | `userId`, `email`, `displayName`, `emailVerified`, `emailNotificationsEnabled` (current values), `unsubscribeLink` (only when a new link was issued, otherwise null) |
 | `user.deleted` | `UserDeleted` | `UserProfile.Delete` (`UserDeletedEvent`), i.e. `DeleteMyAccount` | `userId` |
+| `user.email-verification-requested` | `EmailVerificationRequested` | `UserProfile.RequestEmailVerification` (`EmailVerificationRequestedEvent`), i.e. `Register` with an email and `RequestEmailVerification` | `userId`, `email`, `displayName`, `verificationLink`, `expiresAtUtc` |
 
 Details a consumer can rely on:
 
@@ -51,9 +52,13 @@ Details a consumer can rely on:
 - **Preview** is the message on one line (whitespace runs collapsed), cut to 120 characters with `…` (never splitting a surrogate pair). Attachments use the same placeholders as the conversation list: `[Image]`, `[File]`, `[Voice]` (the caption is not included).
 - **Timestamps** are UTC with microsecond precision, the precision PostgreSQL stores. `readUpToUtc` is the `CreatedAtUtc` of the last read message, so "message M is read by U" is exactly `M.sentAtUtc <= readUpToUtc` for the latest `ConversationRead` of U in that conversation.
 - `MessageRoutes.RoutingKeyOf(event)` and `MessageRoutes.EventTypeOf(routingKey)` map between records and routing keys.
+- **User state is one event.** Verification and the email preference travel in `UserProfileUpdated` rather than in events of their own, so a consumer applies them with the same "newest `occurredAtUtc` wins" rule as the address. A separate `EmailVerified` event could arrive after a newer address change and mark the new, unproven address as verified. Several changes to one user in one save produce a single `UserProfileUpdated`.
+- **`unsubscribeLink` is not state.** The API stores only a hash of the unsubscribe token, so it can put the link in an event only when it creates one: at registration, during the backfill, or when the token is rotated. `null` means "no new link, keep the one you have". Consumers keep the newest link by `occurredAtUtc`, independently of the profile fields.
+- **New fields have safe defaults.** The new parameters of `UserRegistered` and `UserProfileUpdated` are optional (`emailVerified = false`, `emailNotificationsEnabled = true`, `unsubscribeLink = null`), so payloads written before the change still deserialize, and an old event never turns notifications off.
+- **Links** start with `App:PublicApiBaseUrl` (default `http://localhost:8080`): `{base}/api/auth/verify-email?token=…` and `{base}/api/email/unsubscribe?token=…`.
 - Not published: system messages (no flow creates them; they are not user messages), edits, deletions, deliveries, presence and group-management events. Users created with `UserProfile.Create` (seeder, tests) are not "registrations".
 
-Enrichment happens inside the save: `MessageSent` needs one query (members of the affected conversations joined to their users), whatever the number of messages or members; the other events are built from the tracked entities with no query.
+Enrichment happens inside the save: `MessageSent` needs one query (members of the affected conversations joined to their users), whatever the number of messages or members; the other events are built from the tracked entities with no query. The raw verification and unsubscribe tokens reach the mapper only through the in-memory domain events (`EmailVerificationRequestedEvent`, `UnsubscribeTokenIssuedEvent`); the database stores their SHA-256 hashes.
 
 ## Why `FOR UPDATE SKIP LOCKED` and a lease
 
@@ -106,7 +111,7 @@ There is no maximum number of attempts and no dead-letter state: an event that k
 ## Topology
 
 - The API declares only the exchange `chathub.events` (type `topic`, durable, not auto-deleted).
-- Consumers own their queues and bindings. The notification service declares `chathub.notifications` (durable, bound to all five routing keys, manual acks, prefetch), a TTL retry queue and a dead-letter queue behind `chathub.events.dlx`; see [NOTIFICATIONS.md](NOTIFICATIONS.md#rabbitmq-topology). They are classic queues: on this single-node broker a quorum queue adds Raft overhead without adding safety. Switch to quorum queues when RabbitMQ runs as a cluster.
+- Consumers own their queues and bindings. The notification service declares `chathub.notifications` (durable, bound to all six routing keys, manual acks, prefetch), a TTL retry queue and a dead-letter queue behind `chathub.events.dlx`; see [NOTIFICATIONS.md](NOTIFICATIONS.md#rabbitmq-topology). They are classic queues: on this single-node broker a quorum queue adds Raft overhead without adding safety. Switch to quorum queues when RabbitMQ runs as a cluster.
 - Routing keys are `<entity>.<event>`, so `user.*` or `#` bindings work as expected.
 
 ## Configuration
@@ -162,10 +167,12 @@ FROM "OutboxMessages" WHERE "ProcessedAtUtc" > now() - interval '1 hour' GROUP B
 
 The notification service keeps its own copy of every user's email address and display name (`Recipients` in `chathub_notifications`), and clears it when it consumes `user.deleted`.
 
-`UserRegistered` and `UserProfileUpdated` contain the email address and display name. Processed rows are deleted after `RetentionDays`; pending rows stay until published. Deleting an account does not remove earlier outbox rows or messages already in consumer queues: consumers must handle `user.deleted` by erasing what they stored about the user.
+`UserRegistered`, `UserProfileUpdated` and `EmailVerificationRequested` contain the email address and display name, and two of them carry secrets: `verificationLink` (a single-use token valid for 24 hours) and `unsubscribeLink` (a token that only turns email digests off). Once the broker has confirmed one of these rows, the publisher replaces its `Payload` with `{}` in the same update that sets `ProcessedAtUtc` (`OutboxMessage.RedactedOncePublished`), so the outbox keeps neither addresses nor tokens after publishing; the row itself (id, type, timestamps) stays for `RetentionDays` for diagnostics. Pending rows keep their payload until they are published. Other processed rows are deleted after `RetentionDays`. Deleting an account does not remove messages already in consumer queues: consumers must handle `user.deleted` by erasing what they stored about the user.
+
+Why the raw tokens may pass through the outbox and RabbitMQ: a verification token works once and for 24 hours, and an unsubscribe token can do nothing but turn digests off; both travel only on the internal compose network (AMQP is not published on the host), RabbitMQ deletes a message once the consumer acks it, and the outbox redacts the payload as soon as it is published. The alternative, letting the worker read the ChatHub database or share a signing key, would widen access more than these short-lived, low-power tokens do.
 
 ## Tests
 
-- `tests/ChatHub.Application.IntegrationTests/Features/OutboxTests.cs`: mapping (recipients, muted, deleted and departed members, previews, read pointer, user events, events that are not published), atomicity (rollback and failed save leave no row), one enrichment query regardless of group size, cache invalidation still working, and messaging disabled.
-- `…/Features/OutboxPublisherTests.cs` (PostgreSQL + RabbitMQ containers): delivery with AMQP properties, unroutable messages with exponential backoff, lease expiry, two concurrent publishers without duplicates, no claim while the broker is unreachable, broker stop/start with the background loop, cleanup.
+- `tests/ChatHub.Application.IntegrationTests/Features/OutboxTests.cs`: mapping (recipients, muted, deleted and departed members, previews, read pointer, user events with verification, preference and unsubscribe link, `EmailVerificationRequested` with a link to the configured API, events that are not published), atomicity (rollback and failed save leave no row), one enrichment query regardless of group size, cache invalidation still working, and messaging disabled.
+- `…/Features/OutboxPublisherTests.cs` (PostgreSQL + RabbitMQ containers): delivery with AMQP properties, payload redaction after publishing, unroutable messages with exponential backoff, lease expiry, two concurrent publishers without duplicates, no claim while the broker is unreachable, broker stop/start with the background loop, cleanup.
 - `tests/ChatHub.Api.IntegrationTests/MessagingTests.cs`: readiness with RabbitMQ, HTTP send → message on a bound queue, `Degraded` backlog, startup validation.

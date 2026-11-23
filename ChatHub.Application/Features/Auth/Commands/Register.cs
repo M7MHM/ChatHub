@@ -31,7 +31,8 @@ public sealed class RegisterCommandValidator : AbstractValidator<RegisterCommand
 public sealed class RegisterCommandHandler(
     IApplicationDbContext db,
     IPasswordHasher passwordHasher,
-    AuthTokenService tokens) : IRequestHandler<RegisterCommand, Result<AuthResponse>>
+    AuthTokenService tokens,
+    EmailTokenService emailTokens) : IRequestHandler<RegisterCommand, Result<AuthResponse>>
 {
     public async Task<Result<AuthResponse>> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
@@ -42,6 +43,8 @@ public sealed class RegisterCommandHandler(
 
         var user = UserProfile.Register(request.DisplayName, passwordHasher.Hash(request.Password), phoneNumber, email);
         db.UserProfiles.Add(user);
+        emailTokens.IssueUnsubscribe(user);
+        if (email is not null) emailTokens.IssueVerification(user);
 
         var response = tokens.Issue(user);
         try

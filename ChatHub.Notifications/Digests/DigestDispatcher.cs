@@ -77,7 +77,7 @@ public sealed class DigestDispatcher(
         var recipients = await db.Recipients.AsNoTracking()
             .Where(r => userIds.Contains(r.UserId))
             .ToDictionaryAsync(r => r.UserId, cancellationToken);
-        var unread = await UnreadCountsAsync(db, claimed, cancellationToken);
+        var unread = await UnreadCountsAsync(db, claimed, claimedAtUtc - Settings.MaxMessageAge, cancellationToken);
 
         for (var i = 0; i < claimed.Count; i++)
         {
@@ -88,17 +88,18 @@ public sealed class DigestDispatcher(
             }
 
             await DispatchAsync(db, claimed[i], recipients.GetValueOrDefault(claimed[i].UserId),
-                unread.GetValueOrDefault((claimed[i].UserId, claimed[i].ConversationId)), cancellationToken);
+                unread.GetValueOrDefault((claimed[i].UserId, claimed[i].ConversationId)), leasedUntilUtc, cancellationToken);
         }
 
         return claimed.Count;
     }
 
     private async Task DispatchAsync(NotificationsDbContext db, PendingDigest digest, Recipient? recipient, int unreadCount,
-        CancellationToken cancellationToken)
+        DateTime leasedUntilUtc, CancellationToken cancellationToken)
     {
         var deliverable = recipient is null ? [] : channels.Where(c => c.CanDeliverTo(recipient)).ToList();
-        if (deliverable.Count == 0)
+        var awaitsVerification = recipient is { AwaitsEmailVerification: true };
+        if (deliverable.Count == 0 && !awaitsVerification)
         {
             logger.LogInformation(
                 "Dropping the digest for user {UserId} in conversation {ConversationId}: the recipient is {State}.",
@@ -111,6 +112,12 @@ public sealed class DigestDispatcher(
         {
             await db.RemoveMessagesUpToAsync(digest.UserId, digest.ConversationId, digest.LastMessageAtUtc, Settings,
                 resetDelivery: true, CancellationToken.None);
+            return;
+        }
+
+        if (deliverable.Count == 0)
+        {
+            await HoldAsync(db, digest, leasedUntilUtc);
             return;
         }
 
@@ -151,6 +158,7 @@ public sealed class DigestDispatcher(
             UserId = digest.UserId,
             ConversationId = digest.ConversationId,
             Channel = channel.Name,
+            Kind = NotificationKind.Digest,
             MessageCount = notification.MessageCount,
             SentAtUtc = nowUtc
         }));
@@ -160,6 +168,18 @@ public sealed class DigestDispatcher(
         await transaction.CommitAsync(CancellationToken.None);
         logger.LogInformation("Sent a digest of {Count} message(s) to user {UserId} for conversation {ConversationId} via {Channels}.",
             notification.MessageCount, digest.UserId, digest.ConversationId, string.Join(", ", deliveredBy.Select(c => c.Name)));
+    }
+
+    private async Task HoldAsync(NotificationsDbContext db, PendingDigest digest, DateTime leasedUntilUtc)
+    {
+        var recheckAtUtc = UtcNow + Settings.VerificationRecheck;
+        await db.PendingDigests
+            .Where(d => d.UserId == digest.UserId && d.ConversationId == digest.ConversationId && d.LockedUntilUtc == leasedUntilUtc)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.LockedUntilUtc, recheckAtUtc), CancellationToken.None);
+
+        logger.LogDebug(
+            "Holding the digest for user {UserId} in conversation {ConversationId} until the email address is verified; next check at {RecheckAt:O}.",
+            digest.UserId, digest.ConversationId, recheckAtUtc);
     }
 
     private async Task FailAsync(NotificationsDbContext db, PendingDigest digest, Exception exception)
@@ -191,7 +211,7 @@ public sealed class DigestDispatcher(
     }
 
     private static async Task<Dictionary<(Guid UserId, Guid ConversationId), int>> UnreadCountsAsync(NotificationsDbContext db,
-        IReadOnlyList<PendingDigest> digests, CancellationToken cancellationToken)
+        IReadOnlyList<PendingDigest> digests, DateTime notBeforeUtc, CancellationToken cancellationToken)
     {
         var userIds = digests.Select(d => d.UserId).ToArray();
         var conversationIds = digests.Select(d => d.ConversationId).ToArray();
@@ -201,7 +221,7 @@ public sealed class DigestDispatcher(
                 SELECT m."UserId", m."ConversationId", count(*)::int AS "Count"
                 FROM unnest({userIds}, {conversationIds}, {lastMessages}) AS k("UserId", "ConversationId", "LastMessageAtUtc")
                 JOIN "DigestMessages" m ON m."UserId" = k."UserId" AND m."ConversationId" = k."ConversationId"
-                                       AND m."SentAtUtc" <= k."LastMessageAtUtc"
+                                       AND m."SentAtUtc" <= k."LastMessageAtUtc" AND m."SentAtUtc" >= {notBeforeUtc}
                 LEFT JOIN "ConversationReads" r ON r."UserId" = k."UserId" AND r."ConversationId" = k."ConversationId"
                 WHERE r."ReadUpToUtc" IS NULL OR m."SentAtUtc" > r."ReadUpToUtc"
                 GROUP BY m."UserId", m."ConversationId"

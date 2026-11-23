@@ -1,3 +1,4 @@
+using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Features.Messages;
 using ChatHub.Application.Features.Users;
@@ -16,14 +17,15 @@ namespace ChatHub.Application.Common.Messaging;
 public static class IntegrationEventMapper
 {
     public static async Task<IReadOnlyList<IIntegrationEvent>> ToIntegrationEventsAsync(this IApplicationDbContext db,
-        IReadOnlyCollection<IDomainEvent> domainEvents, DateTime nowUtc, CancellationToken cancellationToken)
+        IReadOnlyCollection<IDomainEvent> domainEvents, DateTime nowUtc, EmailLinks links, CancellationToken cancellationToken)
     {
         nowUtc = DatabasePrecision(nowUtc);
         List<IIntegrationEvent> integrationEvents =
         [
             .. await db.MessagesSentAsync(domainEvents.OfType<MessageSentEvent>().ToList(), cancellationToken),
             .. ConversationsRead(domainEvents.OfType<MessageReadEvent>()),
-            .. db.UserChanges(domainEvents, nowUtc)
+            .. db.UserChanges(domainEvents, nowUtc, links),
+            .. db.EmailVerificationsRequested(domainEvents.OfType<EmailVerificationRequestedEvent>(), nowUtc, links)
         ];
         return integrationEvents;
     }
@@ -80,23 +82,47 @@ public static class IntegrationEventMapper
                 DatabasePrecision(e.ReadUpToUtc)));
 
     private static IEnumerable<IIntegrationEvent> UserChanges(this IApplicationDbContext db,
-        IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc)
+        IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc, EmailLinks links)
     {
-        foreach (var userId in events.OfType<UserRegisteredEvent>().Select(e => e.UserId).Distinct())
+        var unsubscribeLinks = events.OfType<UnsubscribeTokenIssuedEvent>()
+            .GroupBy(e => e.UserId)
+            .ToDictionary(g => g.Key, g => links.Unsubscribe(g.Last().Token));
+
+        var registered = events.OfType<UserRegisteredEvent>().Select(e => e.UserId).Distinct().ToList();
+        foreach (var userId in registered)
         {
             var user = db.TrackedUser(userId);
-            yield return new UserRegistered(Guid.CreateVersion7(), nowUtc, user.Id, user.Email?.Value, user.DisplayName);
+            yield return new UserRegistered(Guid.CreateVersion7(), nowUtc, user.Id, user.Email?.Value, user.DisplayName,
+                user.IsEmailVerified, user.EmailNotificationsEnabled, unsubscribeLinks.GetValueOrDefault(userId));
         }
 
-        foreach (var userId in events.OfType<UserProfileUpdatedEvent>().Select(e => e.UserId).Distinct())
+        var updated = events
+            .Select(e => e switch
+            {
+                UserProfileUpdatedEvent u => u.UserId,
+                EmailVerifiedEvent v => v.UserId,
+                EmailNotificationsChangedEvent n => n.UserId,
+                UnsubscribeTokenIssuedEvent t => t.UserId,
+                _ => (Guid?)null
+            })
+            .OfType<Guid>()
+            .Distinct()
+            .Except(registered);
+        foreach (var userId in updated)
         {
             var user = db.TrackedUser(userId);
-            yield return new UserProfileUpdated(Guid.CreateVersion7(), nowUtc, user.Id, user.Email?.Value, user.DisplayName);
+            yield return new UserProfileUpdated(Guid.CreateVersion7(), nowUtc, user.Id, user.Email?.Value, user.DisplayName,
+                user.IsEmailVerified, user.EmailNotificationsEnabled, unsubscribeLinks.GetValueOrDefault(userId));
         }
 
         foreach (var userId in events.OfType<UserDeletedEvent>().Select(e => e.UserId).Distinct())
             yield return new UserDeleted(Guid.CreateVersion7(), nowUtc, userId);
     }
+
+    private static IEnumerable<IIntegrationEvent> EmailVerificationsRequested(this IApplicationDbContext db,
+        IEnumerable<EmailVerificationRequestedEvent> events, DateTime nowUtc, EmailLinks links) =>
+        events.Select(e => new EmailVerificationRequested(Guid.CreateVersion7(), nowUtc, e.UserId, e.Email,
+            db.TrackedUser(e.UserId).DisplayName, links.VerifyEmail(e.Token), DatabasePrecision(e.ExpiresAtUtc)));
 
     private static DateTime DatabasePrecision(DateTime utc) =>
         new(utc.Ticks - utc.Ticks % TimeSpan.TicksPerMicrosecond, DateTimeKind.Utc);

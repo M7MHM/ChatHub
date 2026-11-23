@@ -1,4 +1,5 @@
 using System.Globalization;
+using ChatHub.Application.Common.Emails;
 
 namespace ChatHub.Seeder;
 
@@ -10,12 +11,20 @@ public sealed record SeedOptions
     public const string Usage = """
         Usage: ChatHub.Seeder --confirm [options]
                ChatHub.Seeder --confirm --backfill-notifications [--connection <string>] [--batch-size <n>]
+                              [--public-api-base-url <url>] [--rotate-unsubscribe-links]
 
           --confirm              Required. Without it the seeder refuses to touch the database.
           --reset                Delete existing seed data (users @chathub.test and everything that belongs to them) first.
           --backfill-notifications
                                  Seed nothing; queue a UserProfileUpdated event in the outbox for every user that is not
                                  deleted, so the notification service learns about users created before it existed.
+                                 It carries the email-verified flag and the email preference, and issues an unsubscribe
+                                 link to every user that has none yet.
+          --public-api-base-url <url>
+                                 Base of the unsubscribe links (default: App__PublicApiBaseUrl, else http://localhost:8080).
+          --rotate-unsubscribe-links
+                                 With --backfill-notifications: issue a new unsubscribe link to every user, which disables
+                                 the links in emails sent before. Use it when the notification service lost its copy.
           --connection <string>  PostgreSQL connection string (default: ConnectionStrings__DefaultConnection).
           --users <n>            Users (default 1000).
           --directs <n>          Direct chats (default 500).
@@ -32,6 +41,8 @@ public sealed record SeedOptions
     public bool Confirm { get; init; }
     public bool Reset { get; init; }
     public bool BackfillNotifications { get; init; }
+    public bool RotateUnsubscribeLinks { get; init; }
+    public string? PublicApiBaseUrl { get; init; }
     public bool Help { get; init; }
     public string? ConnectionString { get; init; }
     public int Users { get; init; } = 1000;
@@ -63,6 +74,8 @@ public sealed record SeedOptions
                 "--confirm" => options with { Confirm = true },
                 "--reset" => options with { Reset = true },
                 "--backfill-notifications" => options with { BackfillNotifications = true },
+                "--rotate-unsubscribe-links" => options with { RotateUnsubscribeLinks = true },
+                "--public-api-base-url" => options with { PublicApiBaseUrl = Value() },
                 "--help" or "-h" => options with { Help = true },
                 "--connection" => options with { ConnectionString = Value() },
                 "--users" => options with { Users = Number() },
@@ -86,6 +99,9 @@ public sealed record SeedOptions
     public string? Validate()
     {
         if (BackfillNotifications && Reset) return "--backfill-notifications cannot be combined with --reset.";
+        if (RotateUnsubscribeLinks && !BackfillNotifications) return "--rotate-unsubscribe-links needs --backfill-notifications.";
+        if (PublicApiBaseUrl is not null && !AppUrlSettings.IsValidBaseUrl(PublicApiBaseUrl))
+            return "--public-api-base-url must be an absolute http(s) URL.";
         if (Users is < 2 or > 9999) return "--users must be between 2 and 9999.";
         if (DirectChats > (long)Users * (Users - 1) / 2) return "--directs cannot exceed the number of distinct user pairs.";
         if (MinGroupSize < 2 || MinGroupSize > MaxGroupSize) return "--min-group-size must be at least 2 and not above --max-group-size.";

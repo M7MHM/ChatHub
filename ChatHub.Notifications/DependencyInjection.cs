@@ -4,6 +4,7 @@ using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Health;
 using ChatHub.Notifications.Messaging;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Transactional;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -31,6 +32,8 @@ public static class DependencyInjection
                 "Notifications PollIntervalMilliseconds must be greater than zero and BatchSize between 1 and 500.")
             .Validate(s => s.MaxMessageAgeHours > 0 && s.InboxRetention > s.MaxMessageAge,
                 "Notifications InboxRetentionDays must cover MaxMessageAgeHours.")
+            .Validate(s => s.VerificationRecheckSeconds > 0,
+                "Notifications VerificationRecheckSeconds must be greater than zero.")
             .Validate<IOptions<SmtpSettings>>((s, smtp) => s.Lease >= 2 * smtp.Value.Timeout,
                 "Notifications LeaseSeconds must be at least twice Smtp TimeoutSeconds.")
             .ValidateOnStart();
@@ -64,6 +67,7 @@ public static class DependencyInjection
         services.AddScoped<MessageSentHandler>();
         services.AddScoped<ConversationReadHandler>();
         services.AddScoped<UserEventsHandler>();
+        services.AddScoped<EmailVerificationHandler>();
         services.AddScoped<IIntegrationEventProcessor, IntegrationEventProcessor>();
         services.AddSingleton<INotificationChannel, EmailChannel>();
 

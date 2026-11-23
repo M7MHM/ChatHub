@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ChatHub.Application.Features.Auth.Commands;
 using ChatHub.Application.Features.Conversations.Commands;
 using ChatHub.Application.Features.Messages.Commands;
 using ChatHub.Application.Features.Users.Commands;
@@ -8,6 +9,7 @@ using ChatHub.Contracts;
 using ChatHub.Contracts.Events;
 using ChatHub.Domain.Entities;
 using ChatHub.Domain.Enums;
+using ChatHub.Domain.Events;
 using ChatHub.Domain.ValueObjects;
 using ChatHub.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
@@ -21,8 +23,11 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
     {
         ["Messaging:Enabled"] = "true",
         ["Messaging:User"] = "guest",
-        ["Messaging:Password"] = "guest"
+        ["Messaging:Password"] = "guest",
+        ["App:PublicApiBaseUrl"] = "https://api.chat.example.test/"
     };
+
+    private const string ApiBase = "https://api.chat.example.test/api";
 
     [Fact]
     public async Task SendMessage_InAGroup_WritesMessageSentForActiveLivingMembersExceptTheSender()
@@ -160,15 +165,72 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
     }
 
     [Fact]
-    public async Task Register_WritesUserRegisteredWithTheNormalizedContact()
+    public async Task Register_WritesUserRegisteredWithTheNormalizedContactPreferencesAndUnsubscribeLink()
     {
         var auth = await RegisterAsync("Nora", email: "Nora@Example.com");
         var phoneOnly = await RegisterAsync("Omar", phone: "+201001234567");
+        var links = DomainEvents.OfType<UnsubscribeTokenIssuedEvent>().Select(e => $"{ApiBase}/email/unsubscribe?token={e.Token}").ToList();
 
         var events = await PublishedAsync<UserRegistered>();
         events.Count.ShouldBe(2);
-        events[0].ShouldBe(new UserRegistered(events[0].MessageId, events[0].OccurredAtUtc, auth.User.Id, "nora@example.com", "Nora"));
-        events[1].ShouldBe(new UserRegistered(events[1].MessageId, events[1].OccurredAtUtc, phoneOnly.User.Id, null, "Omar"));
+        events[0].ShouldBe(new UserRegistered(events[0].MessageId, events[0].OccurredAtUtc, auth.User.Id, "nora@example.com", "Nora",
+            EmailVerified: false, EmailNotificationsEnabled: true, UnsubscribeLink: links[0]));
+        events[1].ShouldBe(new UserRegistered(events[1].MessageId, events[1].OccurredAtUtc, phoneOnly.User.Id, null, "Omar",
+            EmailVerified: false, EmailNotificationsEnabled: true, UnsubscribeLink: links[1]));
+    }
+
+    [Fact]
+    public async Task Register_WithEmail_WritesEmailVerificationRequestedLinkingToTheConfiguredApi()
+    {
+        var auth = await RegisterAsync("Nora", email: "nora@example.com");
+        var requested = DomainEvents.OfType<EmailVerificationRequestedEvent>().ShouldHaveSingleItem();
+
+        var e = (await PublishedAsync<EmailVerificationRequested>()).ShouldHaveSingleItem();
+        e.ShouldBe(new EmailVerificationRequested(e.MessageId, e.OccurredAtUtc, auth.User.Id, "nora@example.com", "Nora",
+            $"{ApiBase}/auth/verify-email?token={requested.Token}", e.ExpiresAtUtc));
+        e.ExpiresAtUtc.ShouldBe(e.OccurredAtUtc + TimeSpan.FromHours(24), TimeSpan.FromMilliseconds(1));
+        (await OutboxAsync()).Select(r => r.Type).ShouldBe([nameof(UserRegistered), nameof(EmailVerificationRequested)]);
+    }
+
+    [Fact]
+    public async Task RequestEmailVerification_WritesOnlyEmailVerificationRequested()
+    {
+        var auth = await RegisterAsync("Nora", email: "nora@example.com");
+        await ClearOutboxAsync();
+
+        (await SendAsync(auth.User.Id, new RequestEmailVerificationCommand())).ShouldSucceed();
+
+        (await OutboxAsync()).ShouldHaveSingleItem().Type.ShouldBe(nameof(EmailVerificationRequested));
+    }
+
+    [Fact]
+    public async Task VerifyEmail_WritesUserProfileUpdatedWithEmailVerifiedAndNoNewLink()
+    {
+        var auth = await RegisterAsync("Nora", email: "nora@example.com");
+        var token = DomainEvents.OfType<EmailVerificationRequestedEvent>()[^1].Token;
+        await ClearOutboxAsync();
+
+        (await SendAsync(null, new VerifyEmailCommand(token))).ShouldSucceed();
+
+        var e = (await PublishedAsync<UserProfileUpdated>()).ShouldHaveSingleItem();
+        (e.UserId, e.Email, e.DisplayName, e.EmailVerified, e.EmailNotificationsEnabled, e.UnsubscribeLink)
+            .ShouldBe((auth.User.Id, "nora@example.com", "Nora", true, true, null));
+        (await OutboxAsync()).ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task EmailPreferenceChanges_WriteUserProfileUpdatedOnlyWhenThePreferenceChanges()
+    {
+        var auth = await RegisterAsync("Nora", email: "nora@example.com");
+        var token = DomainEvents.OfType<UnsubscribeTokenIssuedEvent>()[^1].Token;
+        await ClearOutboxAsync();
+
+        (await SendAsync(auth.User.Id, new UpdateEmailPreferencesCommand(false))).ShouldSucceed();
+        (await SendAsync(auth.User.Id, new UpdateEmailPreferencesCommand(true))).ShouldSucceed();
+        (await SendAsync(null, new UnsubscribeCommand(token))).ShouldSucceed();
+        (await SendAsync(null, new UnsubscribeCommand(token))).ShouldSucceed();
+
+        (await PublishedAsync<UserProfileUpdated>()).Select(e => e.EmailNotificationsEnabled).ShouldBe([false, true, false]);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using ChatHub.Notifications.Channels;
 using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Messaging;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Transactional;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -92,13 +93,18 @@ public abstract class NotificationsTestBase(NotificationsFixture fixture) : IAsy
 
     protected Task<List<PendingDigest>> DigestsAsync() => QueryAsync(db => db.PendingDigests.AsNoTracking().ToListAsync());
 
-    protected async Task<Guid> UserAsync(string name, bool withEmail = true)
+    protected async Task<Guid> UserAsync(string name, bool withEmail = true, bool verified = true, bool notifications = true,
+        string? unsubscribeLink = null)
     {
         var id = Guid.CreateVersion7();
         (await ProcessAsync(new UserRegistered(Guid.CreateVersion7(), Now, id,
-            withEmail ? $"{name.ToLowerInvariant()}@example.com" : null, name))).ShouldBeTrue();
+            withEmail ? $"{name.ToLowerInvariant()}@example.com" : null, name, withEmail && verified, notifications,
+            unsubscribeLink))).ShouldBeTrue();
         return id;
     }
+
+    protected Task<Recipient> RecipientAsync(Guid userId) =>
+        QueryAsync(db => db.Recipients.AsNoTracking().SingleAsync(r => r.UserId == userId));
 
     protected MessageSent Message(Guid conversationId, Guid senderId, string senderName, IReadOnlyList<Guid> recipients,
         string? preview = "hello", ConversationType type = ConversationType.Direct, string? title = null,
@@ -134,7 +140,7 @@ public abstract class NotificationsTestBase(NotificationsFixture fixture) : IAsy
 
 public sealed class FakeChannel : INotificationChannel
 {
-    private readonly ConcurrentQueue<DigestNotification> _sent = new();
+    private readonly ConcurrentQueue<Notification> _sent = new();
     private int _failuresLeft;
 
     public string Name => "fake";
@@ -143,13 +149,22 @@ public sealed class FakeChannel : INotificationChannel
 
     public Action? OnSend { get; set; }
 
-    public IReadOnlyList<DigestNotification> Sent => [.. _sent];
+    public IReadOnlyList<DigestNotification> Sent => [.. _sent.OfType<DigestNotification>()];
+
+    public IReadOnlyList<EmailVerificationNotification> Verifications => [.. _sent.OfType<EmailVerificationNotification>()];
 
     public void FailNext(int times) => Interlocked.Exchange(ref _failuresLeft, times);
 
-    public bool CanDeliverTo(Recipient recipient) => !recipient.IsDeleted && !string.IsNullOrWhiteSpace(recipient.Email);
+    public bool CanDeliverTo(Recipient recipient) => recipient.CanReceiveEmailDigests;
 
-    public Task SendAsync(DigestNotification notification, CancellationToken cancellationToken)
+    public bool CanDeliver(Notification notification) => notification switch
+    {
+        DigestNotification digest => CanDeliverTo(digest.Recipient),
+        EmailVerificationNotification => true,
+        _ => false
+    };
+
+    public Task SendAsync(Notification notification, CancellationToken cancellationToken)
     {
         if (FailAlways || Interlocked.Decrement(ref _failuresLeft) >= 0)
             throw new IOException("SMTP relay unavailable");

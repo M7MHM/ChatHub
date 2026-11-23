@@ -5,4 +5,7 @@ public sealed record UserRegistered(
     DateTime OccurredAtUtc,
     Guid UserId,
     string? Email,
-    string DisplayName) : IIntegrationEvent;
+    string DisplayName,
+    bool EmailVerified = false,
+    bool EmailNotificationsEnabled = true,
+    string? UnsubscribeLink = null) : IIntegrationEvent;

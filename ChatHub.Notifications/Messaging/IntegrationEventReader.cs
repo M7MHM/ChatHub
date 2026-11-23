@@ -36,6 +36,12 @@ public static class IntegrationEventReader
         return error is null ? new ReadResult(integrationEvent, null) : ReadResult.Invalid($"Invalid {type.Name}: {error}");
     }
 
+    private static bool IsEmailAddress(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && MimeKit.MailboxAddress.TryParse(value, out var address) && address.Address.Contains('@');
+
+    private static bool IsHttpUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
+
     private static string? MissingFields(IIntegrationEvent integrationEvent) => integrationEvent switch
     {
         MessageSent m when m.ConversationId == Guid.Empty || m.ChatMessageId == Guid.Empty || m.SenderId == Guid.Empty =>
@@ -47,6 +53,9 @@ public static class IntegrationEventReader
         UserRegistered u when u.UserId == Guid.Empty || u.DisplayName is null => "userId and displayName are required.",
         UserProfileUpdated u when u.UserId == Guid.Empty || u.DisplayName is null => "userId and displayName are required.",
         UserDeleted d when d.UserId == Guid.Empty => "userId is required.",
+        EmailVerificationRequested v when v.UserId == Guid.Empty || v.DisplayName is null || !IsEmailAddress(v.Email) =>
+            "userId, displayName and a valid email are required.",
+        EmailVerificationRequested v when !IsHttpUrl(v.VerificationLink) => "verificationLink must be an absolute http(s) URL.",
         _ when integrationEvent.MessageId == Guid.Empty => "messageId is required.",
         _ => null
     };

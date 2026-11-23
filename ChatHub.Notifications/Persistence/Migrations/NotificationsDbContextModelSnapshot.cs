@@ -166,10 +166,23 @@ namespace ChatHub.Notifications.Persistence.Migrations
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
 
+                    b.Property<bool>("EmailNotificationsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EmailVerified")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
                     b.Property<DateTime>("LastEventAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UnsubscribeLink")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime?>("UnsubscribeLinkIssuedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("UserId");
@@ -187,8 +200,13 @@ namespace ChatHub.Notifications.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
-                    b.Property<Guid>("ConversationId")
+                    b.Property<Guid?>("ConversationId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<int>("MessageCount")
                         .HasColumnType("integer");

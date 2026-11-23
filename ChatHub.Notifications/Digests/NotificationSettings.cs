@@ -15,6 +15,7 @@ public sealed class NotificationSettings
     public int BatchSize { get; init; } = 20;
     public int InboxRetentionDays { get; init; } = 7;
     public int MaxMessageAgeHours { get; init; } = 24;
+    public int VerificationRecheckSeconds { get; init; } = 60;
 
     public TimeSpan DigestDelay => TimeSpan.FromSeconds(DigestDelaySeconds);
     public TimeSpan Cooldown => TimeSpan.FromMinutes(CooldownMinutes);
@@ -23,6 +24,7 @@ public sealed class NotificationSettings
     public TimeSpan Lease => TimeSpan.FromSeconds(LeaseSeconds);
     public TimeSpan InboxRetention => TimeSpan.FromDays(InboxRetentionDays);
     public TimeSpan MaxMessageAge => TimeSpan.FromHours(MaxMessageAgeHours);
+    public TimeSpan VerificationRecheck => TimeSpan.FromSeconds(VerificationRecheckSeconds);
 
     public string ConversationLink(Guid conversationId) => $"{AppBaseUrl.TrimEnd('/')}/conversations/{conversationId}";
 }

@@ -308,7 +308,7 @@ public sealed class DigestRulesTests(NotificationsFixture fixture) : Notificatio
         await ProcessAsync(Message(chat, alice, "Alice", [bob]));
 
         Clock.Advance(TimeSpan.FromSeconds(30));
-        await ProcessAsync(new UserProfileUpdated(Guid.CreateVersion7(), Now, bob, "robert@example.com", "Robert"));
+        await ProcessAsync(new UserProfileUpdated(Guid.CreateVersion7(), Now, bob, "robert@example.com", "Robert", EmailVerified: true));
         Clock.Advance(Delay);
         await DispatchAsync();
 

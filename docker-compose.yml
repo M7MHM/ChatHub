@@ -87,6 +87,7 @@ services:
     profiles: ["seed"]
     environment:
       ConnectionStrings__DefaultConnection: *db-connection
+      App__PublicApiBaseUrl: ${PUBLIC_API_BASE_URL:-http://localhost:8080}
     networks: [chathub]
     depends_on:
       postgres:
@@ -111,6 +112,10 @@ services:
       Messaging__Host: rabbitmq
       Messaging__User: ${RABBITMQ_USER:-chathub}
       Messaging__Password: ${RABBITMQ_PASSWORD:-chathub}
+      # Links in verification and unsubscribe emails point here: the address users reach nginx at.
+      App__PublicApiBaseUrl: ${PUBLIC_API_BASE_URL:-http://localhost:8080}
+      EmailVerification__TokenLifetimeHours: ${EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS:-24}
+      EmailVerification__MaxRequestsPerHour: ${EMAIL_VERIFICATION_MAX_REQUESTS_PER_HOUR:-3}
     deploy:
       replicas: 2
     networks: [chathub]

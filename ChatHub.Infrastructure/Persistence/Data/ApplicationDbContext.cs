@@ -21,6 +21,7 @@ public class ApplicationDbContext(
     public DbSet<ConversationMember> ConversationMembers => Set<ConversationMember>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<UploadedFile> UploadedFiles => Set<UploadedFile>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 

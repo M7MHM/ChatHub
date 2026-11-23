@@ -6,5 +6,6 @@ public enum ErrorType
     Validation,
     NotFound,
     Conflict,
-    Forbidden
+    Forbidden,
+    TooManyRequests
 }

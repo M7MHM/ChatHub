@@ -2,7 +2,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ChatHub.Application.Common.Caching;
+using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Interfaces;
+using ChatHub.Application.Features.Auth;
 using ChatHub.Infrastructure.Caching;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Messaging;
@@ -40,6 +42,7 @@ public static class DependencyInjection
         services.AddCaching(configuration, redis);
         services.AddPersistence(configuration, messaging);
         services.AddSecurity(configuration);
+        services.AddAccountEmails(configuration);
         services.AddFileStorage(configuration);
         services.AddRealTime(configuration, redis);
         if (messaging) services.AddMessaging(configuration);
@@ -185,6 +188,25 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddSingleton<IIdentityService, IdentityService>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
+    }
+
+    private static void AddAccountEmails(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<AppUrlSettings>()
+            .Bind(configuration.GetSection(AppUrlSettings.SectionName))
+            .Validate(s => AppUrlSettings.IsValidBaseUrl(s.PublicApiBaseUrl),
+                "App PublicApiBaseUrl must be an absolute http(s) URL without a query string.")
+            .ValidateOnStart();
+
+        services.AddOptions<EmailVerificationSettings>()
+            .Bind(configuration.GetSection(EmailVerificationSettings.SectionName))
+            .Validate(s => s.TokenLifetimeHours is > 0 and <= 168,
+                "EmailVerification TokenLifetimeHours must be between 1 and 168.")
+            .Validate(s => s.MaxRequestsPerHour is > 0 and <= 100,
+                "EmailVerification MaxRequestsPerHour must be between 1 and 100.")
+            .ValidateOnStart();
+
+        services.AddSingleton(sp => new EmailLinks(sp.GetRequiredService<IOptions<AppUrlSettings>>().Value.PublicApiBaseUrl));
     }
 
     private static void AddFileStorage(this IServiceCollection services, IConfiguration configuration)

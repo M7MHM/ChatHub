@@ -136,12 +136,15 @@ public sealed class OutboxPublisherService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
+        var redacted = OutboxMessage.RedactedOncePublished;
         if (publishedIds.Length > 0)
             await db.OutboxMessages
                 .Where(m => publishedIds.Contains(m.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(m => m.ProcessedAtUtc, now)
-                    .SetProperty(m => m.LockedUntilUtc, (DateTime?)null), cancellationToken);
+                    .SetProperty(m => m.LockedUntilUtc, (DateTime?)null)
+                    .SetProperty(m => m.Payload, m => redacted.Contains(m.Type) ? OutboxMessage.RedactedPayload : m.Payload),
+                    cancellationToken);
 
         if (failures.Count == 0) return;
 

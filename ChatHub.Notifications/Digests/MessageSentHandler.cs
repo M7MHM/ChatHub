@@ -24,7 +24,10 @@ public sealed class MessageSentHandler(
         if (candidates.Length == 0) return;
 
         var known = await db.Recipients.AsNoTracking().Where(r => candidates.Contains(r.UserId)).ToListAsync(cancellationToken);
-        var unreachable = known.Where(r => !channels.Any(c => c.CanDeliverTo(r))).Select(r => r.UserId).ToHashSet();
+        var unreachable = known
+            .Where(r => !r.AwaitsEmailVerification && !channels.Any(c => c.CanDeliverTo(r)))
+            .Select(r => r.UserId)
+            .ToHashSet();
         var recipients = candidates.Where(id => !unreachable.Contains(id)).ToArray();
         if (recipients.Length == 0) return;
 

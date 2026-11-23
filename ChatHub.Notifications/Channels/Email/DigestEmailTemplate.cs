@@ -10,6 +10,7 @@ public static class DigestEmailTemplate
 {
     private const string GroupFallbackTitle = "a group chat";
     private const string Footer = "You get this email because you have unread messages on ChatHub.";
+    private const string NoUnsubscribeLink = "You can turn these emails off in your ChatHub settings.";
 
     public static RenderedEmail Render(DigestNotification n)
     {
@@ -23,6 +24,8 @@ public static class DigestEmailTemplate
         List<string> text = [$"Hi {n.Recipient.DisplayName},", "", summary];
         if (n.LastPreview is not null) text.AddRange(["", $"{latest}: \"{n.LastPreview}\""]);
         text.AddRange(["", $"Open the conversation: {n.Link}", "", Footer]);
+        var unsubscribe = n.Recipient.UnsubscribeLink;
+        text.Add(unsubscribe is null ? NoUnsubscribeLink : $"Unsubscribe from these emails: {unsubscribe}");
 
         var preview = n.LastPreview is null
             ? ""
@@ -38,13 +41,18 @@ public static class DigestEmailTemplate
             <p>{Encode(summary)}</p>
             {preview}
             <p><a href="{Encode(n.Link)}" style="display: inline-block; padding: 10px 16px; background: #3e7bfa; color: #ffffff; text-decoration: none; border-radius: 6px;">Open the conversation</a></p>
-            <p style="font-size: 12px; color: #7b8794;">{Footer}</p>
+            <p style="font-size: 12px; color: #7b8794;">{Footer} {UnsubscribeHtml(unsubscribe)}</p>
             </body>
             </html>
             """;
 
         return new RenderedEmail(subject, string.Join("\n", text), html);
     }
+
+    private static string UnsubscribeHtml(string? link) =>
+        link is null
+            ? NoUnsubscribeLink
+            : $"<a href=\"{Encode(link)}\" style=\"color: #7b8794;\">Unsubscribe</a> from these emails.";
 
     private static string Encode(string value) => WebUtility.HtmlEncode(value);
 

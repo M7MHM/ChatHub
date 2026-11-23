@@ -50,9 +50,7 @@ public class IdentityService(IOptions<JwtSettings> options, TimeProvider timePro
     public string GenerateRefreshToken() =>
         Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(RefreshTokenSizeBytes));
 
-    public string HashToken(string token)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(token);
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-    }
+    public string GenerateUrlToken() => OpaqueToken.Generate();
+
+    public string HashToken(string token) => OpaqueToken.Hash(token);
 }

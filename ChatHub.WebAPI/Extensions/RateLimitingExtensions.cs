@@ -8,6 +8,8 @@ public static class RateLimitPolicies
 {
     public const string AuthStrict = "auth-strict";
     public const string AuthSession = "auth-session";
+    public const string EmailVerification = "email-verification";
+    public const string EmailLink = "email-link";
 }
 
 public static class RateLimitingExtensions
@@ -15,6 +17,8 @@ public static class RateLimitingExtensions
     public const string SectionName = "RateLimiting";
     public const int DefaultAuthStrictPermitLimit = 10;
     public const int DefaultAuthSessionPermitLimit = 60;
+    public const int DefaultEmailVerificationPermitLimit = 5;
+    public const int DefaultEmailLinkPermitLimit = 30;
 
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
@@ -23,6 +27,8 @@ public static class RateLimitingExtensions
         var section = configuration.GetSection(SectionName);
         var authStrict = PermitLimit(section, "AuthStrictPermitLimit", DefaultAuthStrictPermitLimit);
         var authSession = PermitLimit(section, "AuthSessionPermitLimit", DefaultAuthSessionPermitLimit);
+        var emailVerification = PermitLimit(section, "EmailVerificationPermitLimit", DefaultEmailVerificationPermitLimit);
+        var emailLink = PermitLimit(section, "EmailLinkPermitLimit", DefaultEmailLinkPermitLimit);
 
         return services.AddRateLimiter(options =>
         {
@@ -30,6 +36,8 @@ public static class RateLimitingExtensions
 
             options.AddFixedWindowPerIp(RateLimitPolicies.AuthStrict, authStrict);
             options.AddFixedWindowPerIp(RateLimitPolicies.AuthSession, authSession);
+            options.AddFixedWindowPerIp(RateLimitPolicies.EmailVerification, emailVerification);
+            options.AddFixedWindowPerIp(RateLimitPolicies.EmailLink, emailLink);
 
             options.OnRejected = async (context, _) =>
             {

@@ -6,4 +6,7 @@ public static class UserErrors
 {
     public static readonly Error NotFound = Error.NotFound("User.NotFound", "The user was not found.");
     public static readonly Error CannotBlockSelf = Error.Validation("User.CannotBlockSelf", "You cannot block yourself.");
+
+    public static readonly Error InvalidUnsubscribeToken =
+        Error.Validation("User.InvalidUnsubscribeToken", "The unsubscribe link is invalid or no longer active.");
 }

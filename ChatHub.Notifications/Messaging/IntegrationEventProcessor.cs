@@ -2,6 +2,7 @@ using ChatHub.Contracts;
 using ChatHub.Contracts.Events;
 using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Transactional;
 using Microsoft.EntityFrameworkCore;
 
 namespace ChatHub.Notifications.Messaging;
@@ -16,6 +17,7 @@ public sealed class IntegrationEventProcessor(
     MessageSentHandler messages,
     ConversationReadHandler reads,
     UserEventsHandler users,
+    EmailVerificationHandler verifications,
     TimeProvider timeProvider) : IIntegrationEventProcessor
 {
     public async Task<bool> ProcessAsync(IIntegrationEvent integrationEvent, CancellationToken cancellationToken)
@@ -33,9 +35,12 @@ public sealed class IntegrationEventProcessor(
         {
             MessageSent e => messages.HandleAsync(e, nowUtc, cancellationToken),
             ConversationRead e => reads.HandleAsync(e, cancellationToken),
-            UserRegistered e => users.UpsertAsync(e.UserId, e.Email, e.DisplayName, e.OccurredAtUtc, cancellationToken),
-            UserProfileUpdated e => users.UpsertAsync(e.UserId, e.Email, e.DisplayName, e.OccurredAtUtc, cancellationToken),
+            UserRegistered e => users.UpsertAsync(new RecipientState(e.UserId, e.Email, e.DisplayName, e.EmailVerified,
+                e.EmailNotificationsEnabled, e.UnsubscribeLink, e.OccurredAtUtc), cancellationToken),
+            UserProfileUpdated e => users.UpsertAsync(new RecipientState(e.UserId, e.Email, e.DisplayName, e.EmailVerified,
+                e.EmailNotificationsEnabled, e.UnsubscribeLink, e.OccurredAtUtc), cancellationToken),
             UserDeleted e => users.DeleteAsync(e.UserId, e.OccurredAtUtc, cancellationToken),
+            EmailVerificationRequested e => verifications.HandleAsync(e, nowUtc, cancellationToken),
             _ => throw new NotSupportedException($"{integrationEvent.GetType().Name} has no handler.")
         };
         await handled;

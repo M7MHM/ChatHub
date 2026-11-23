@@ -1,4 +1,5 @@
 using ChatHub.Contracts.Events;
+using ChatHub.Notifications.Channels;
 using ChatHub.Notifications.Persistence;
 
 namespace ChatHub.Notifications.Digests;
@@ -13,4 +14,4 @@ public sealed record DigestNotification(
     string? LastPreview,
     DateTime FirstUnreadAtUtc,
     DateTime LastMessageAtUtc,
-    string Link);
+    string Link) : Notification(Recipient.UserId, NotificationKind.Digest);

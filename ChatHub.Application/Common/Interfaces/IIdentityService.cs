@@ -8,5 +8,6 @@ public interface IIdentityService
 
     (string Token, DateTime ExpiresAtUtc) GenerateAccessToken(UserProfile user);
     string GenerateRefreshToken();
+    string GenerateUrlToken();
     string HashToken(string token);
 }

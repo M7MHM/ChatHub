@@ -11,6 +11,7 @@ public static class MessageRoutes
     public const string UserRegistered = "user.registered";
     public const string UserProfileUpdated = "user.profile-updated";
     public const string UserDeleted = "user.deleted";
+    public const string EmailVerificationRequested = "user.email-verification-requested";
 
     private static readonly Dictionary<Type, string> RoutingKeys = new()
     {
@@ -18,7 +19,8 @@ public static class MessageRoutes
         [typeof(Events.ConversationRead)] = ConversationRead,
         [typeof(Events.UserRegistered)] = UserRegistered,
         [typeof(Events.UserProfileUpdated)] = UserProfileUpdated,
-        [typeof(Events.UserDeleted)] = UserDeleted
+        [typeof(Events.UserDeleted)] = UserDeleted,
+        [typeof(Events.EmailVerificationRequested)] = EmailVerificationRequested
     };
 
     private static readonly Dictionary<string, Type> EventTypes =

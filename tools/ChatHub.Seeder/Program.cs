@@ -1,3 +1,4 @@
+using ChatHub.Application.Common.Emails;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Seeder;
 using Npgsql;
@@ -41,7 +42,11 @@ if (options.BackfillNotifications)
     try
     {
         await using var db = ApplicationDbContextFactory.Create(connectionString);
-        await new NotificationBackfill(db, options.BatchSize, Console.Out).RunAsync();
+        var publicApiBaseUrl = options.PublicApiBaseUrl
+                               ?? Environment.GetEnvironmentVariable("App__PublicApiBaseUrl")
+                               ?? AppUrlSettings.DefaultPublicApiBaseUrl;
+        await new NotificationBackfill(db, options.BatchSize, Console.Out, links: new EmailLinks(publicApiBaseUrl),
+            rotateUnsubscribeLinks: options.RotateUnsubscribeLinks).RunAsync();
         return 0;
     }
     catch (Exception exception)

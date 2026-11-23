@@ -1,4 +1,3 @@
-using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Persistence;
 
 namespace ChatHub.Notifications.Channels;
@@ -9,5 +8,7 @@ public interface INotificationChannel
 
     bool CanDeliverTo(Recipient recipient);
 
-    Task SendAsync(DigestNotification notification, CancellationToken cancellationToken);
+    bool CanDeliver(Notification notification);
+
+    Task SendAsync(Notification notification, CancellationToken cancellationToken);
 }

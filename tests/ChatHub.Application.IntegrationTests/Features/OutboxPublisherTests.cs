@@ -52,7 +52,7 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
     [Fact]
     public async Task PublishPending_UnroutableMessage_IsRetriedWithExponentialBackoffUntilAQueueIsBound()
     {
-        await RegisterAsync("Nora", email: "nora@example.com");
+        await RegisterAsync("Nora", phone: "01001234567");
 
         (await Publisher.PublishPendingAsync(CancellationToken.None)).ShouldBe(1);
         var failed = await SingleRowAsync();
@@ -77,6 +77,29 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
         published.ProcessedAtUtc.ShouldNotBeNull();
         published.Attempts.ShouldBe(2);
         published.LastError.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task PublishPending_EventsWithTokensOrAddresses_AreRedactedInTheOutboxOnceTheBrokerHasThem()
+    {
+        await using var queue = await TestQueue.BindAsync(rabbit, MessageRoutes.UserRegistered,
+            MessageRoutes.EmailVerificationRequested, MessageRoutes.MessageSent);
+        await RegisterAsync("Nora", email: "nora@example.com");
+        var crew = await CreateCrewAsync();
+        await SendTextAsync(crew.Paula, crew.Group, "hello broker");
+
+        (await DrainAsync(Publisher)).ShouldBe(3);
+
+        var deliveries = await queue.TakeAllAsync();
+        deliveries.Count.ShouldBe(3);
+        TestQueue.Read<EmailVerificationRequested>(deliveries.Single(d => d.RoutingKey == MessageRoutes.EmailVerificationRequested))
+            .VerificationLink.ShouldContain("/api/auth/verify-email?token=");
+        TestQueue.Read<UserRegistered>(deliveries.Single(d => d.RoutingKey == MessageRoutes.UserRegistered))
+            .UnsubscribeLink.ShouldNotBeNull().ShouldContain("/api/email/unsubscribe?token=");
+        var rows = await QueryDbAsync(db => db.OutboxMessages.AsNoTracking().ToListAsync());
+        rows.ShouldAllBe(r => r.ProcessedAtUtc != null);
+        rows.Where(r => r.Type != nameof(MessageSent)).Select(r => r.Payload).ShouldBe(["{}", "{}"]);
+        rows.Single(r => r.Type == nameof(MessageSent)).Payload.ShouldContain("hello broker");
     }
 
     [Fact]
