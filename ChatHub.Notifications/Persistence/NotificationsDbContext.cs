@@ -14,6 +14,9 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
     public DbSet<DigestMessage> DigestMessages => Set<DigestMessage>();
     public DbSet<DigestCooldown> DigestCooldowns => Set<DigestCooldown>();
     public DbSet<SentNotification> SentNotifications => Set<SentNotification>();
+    public DbSet<MessageSnapshot> MessageSnapshots => Set<MessageSnapshot>();
+    public DbSet<RecipientPresence> RecipientPresence => Set<RecipientPresence>();
+    public DbSet<OutgoingEmail> OutgoingEmails => Set<OutgoingEmail>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,6 +79,36 @@ public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbConte
             sent.Property(s => s.Kind).HasConversion<string>().HasMaxLength(SentNotification.MaxKindLength);
             sent.HasIndex(s => new { s.UserId, s.SentAtUtc });
             sent.HasIndex(s => s.SentAtUtc);
+        });
+
+        modelBuilder.Entity<MessageSnapshot>(snapshot =>
+        {
+            snapshot.ToTable("MessageSnapshots");
+            snapshot.HasKey(s => s.ChatMessageId);
+            snapshot.Property(s => s.ChatMessageId).ValueGeneratedNever();
+            snapshot.Property(s => s.SenderName).HasMaxLength(PendingDigest.MaxSenderNameLength);
+            snapshot.Property(s => s.Preview).HasMaxLength(PendingDigest.MaxPreviewLength);
+            snapshot.HasIndex(s => s.RecordedAtUtc);
+        });
+
+        modelBuilder.Entity<RecipientPresence>(presence =>
+        {
+            presence.ToTable("RecipientPresence");
+            presence.HasKey(p => p.UserId);
+            presence.Property(p => p.UserId).ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<OutgoingEmail>(email =>
+        {
+            email.ToTable("OutgoingEmails");
+            email.HasKey(e => e.Id);
+            email.Property(e => e.Id).ValueGeneratedNever();
+            email.Property(e => e.Template).HasConversion<string>().HasMaxLength(OutgoingEmail.MaxTemplateLength);
+            email.Property(e => e.ToAddress).HasMaxLength(Recipient.MaxEmailLength).IsRequired();
+            email.Property(e => e.DisplayName).HasMaxLength(Recipient.MaxDisplayNameLength).IsRequired();
+            email.Property(e => e.Link).HasMaxLength(Recipient.MaxLinkLength).IsRequired();
+            email.Property(e => e.LastError).HasMaxLength(OutgoingEmail.MaxErrorLength);
+            email.HasIndex(e => e.CreatedAtUtc).HasDatabaseName("IX_OutgoingEmails_Pending").HasFilter("\"FailedAtUtc\" IS NULL");
         });
     }
 }

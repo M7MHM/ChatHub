@@ -1,6 +1,7 @@
 using ChatHub.Contracts.Events;
 using ChatHub.Notifications.Channels;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Sending;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -9,6 +10,7 @@ namespace ChatHub.Notifications.Digests;
 public sealed class MessageSentHandler(
     NotificationsDbContext db,
     IEnumerable<INotificationChannel> channels,
+    EmailSuppression suppression,
     IOptions<NotificationSettings> options)
 {
     public async Task HandleAsync(MessageSent message, DateTime nowUtc, CancellationToken cancellationToken)
@@ -25,7 +27,7 @@ public sealed class MessageSentHandler(
 
         var known = await db.Recipients.AsNoTracking().Where(r => candidates.Contains(r.UserId)).ToListAsync(cancellationToken);
         var unreachable = known
-            .Where(r => !r.AwaitsEmailVerification && !channels.Any(c => c.CanDeliverTo(r)))
+            .Where(r => suppression.IsSuppressed(r.Email) || (!r.AwaitsEmailVerification && !channels.Any(c => c.CanDeliverTo(r))))
             .Select(r => r.UserId)
             .ToHashSet();
         var recipients = candidates.Where(id => !unreachable.Contains(id)).ToArray();
@@ -35,6 +37,19 @@ public sealed class MessageSentHandler(
         var title = Truncate(message.ConversationTitle, PendingDigest.MaxTitleLength);
         var sender = Truncate(message.SenderDisplayName, PendingDigest.MaxSenderNameLength)!;
         var preview = Truncate(message.Preview, PendingDigest.MaxPreviewLength);
+
+        var snapshot = (await db.Database.SqlQuery<SnapshotState>($"""
+                INSERT INTO "MessageSnapshots" AS s ("ChatMessageId", "ConversationId", "SentAtUtc", "SenderName", "Preview", "RecordedAtUtc")
+                VALUES ({message.ChatMessageId}, {message.ConversationId}, {message.SentAtUtc}, {sender}, CAST({preview} AS text), {nowUtc})
+                ON CONFLICT ("ChatMessageId") DO UPDATE SET
+                    "SentAtUtc" = EXCLUDED."SentAtUtc",
+                    "SenderName" = EXCLUDED."SenderName",
+                    "Preview" = CASE WHEN s."EditedAtUtc" IS NULL AND s."DeletedAtUtc" IS NULL THEN EXCLUDED."Preview" ELSE s."Preview" END
+                RETURNING s."DeletedAtUtc" IS NOT NULL AS "Deleted", s."Preview" AS "Preview"
+                """)
+            .ToListAsync(cancellationToken)).Single();
+        if (snapshot.Deleted) return;
+        preview = snapshot.Preview;
 
         await db.Database.ExecuteSqlAsync($"""
             WITH unread AS (
@@ -72,6 +87,8 @@ public sealed class MessageSentHandler(
                 "FailedAtUtc" = NULL
             """, cancellationToken);
     }
+
+    private sealed record SnapshotState(bool Deleted, string? Preview);
 
     private static string? Truncate(string? value, int maxLength) =>
         value is null || value.Length <= maxLength ? value : value[..maxLength];

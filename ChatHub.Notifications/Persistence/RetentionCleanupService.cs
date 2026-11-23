@@ -4,7 +4,8 @@ using Microsoft.Extensions.Options;
 
 namespace ChatHub.Notifications.Persistence;
 
-public sealed record CleanupResult(int ProcessedMessages, int SentNotifications, int ConversationReads, int Cooldowns);
+public sealed record CleanupResult(int ProcessedMessages, int SentNotifications, int ConversationReads, int Cooldowns,
+    int MessageSnapshots = 0, int FailedEmails = 0);
 
 public sealed class RetentionCleanupService(
     IServiceScopeFactory scopeFactory,
@@ -50,7 +51,9 @@ public sealed class RetentionCleanupService(
             await db.ProcessedMessages.Where(m => m.ProcessedAtUtc < cutoff).ExecuteDeleteAsync(cancellationToken),
             await db.SentNotifications.Where(s => s.SentAtUtc < cutoff).ExecuteDeleteAsync(cancellationToken),
             await db.ConversationReads.Where(r => r.ReadUpToUtc < cutoff).ExecuteDeleteAsync(cancellationToken),
-            await db.DigestCooldowns.Where(c => c.LastSentAtUtc < cooldownCutoff).ExecuteDeleteAsync(cancellationToken));
+            await db.DigestCooldowns.Where(c => c.LastSentAtUtc < cooldownCutoff).ExecuteDeleteAsync(cancellationToken),
+            await db.MessageSnapshots.Where(s => s.RecordedAtUtc < cutoff).ExecuteDeleteAsync(cancellationToken),
+            await db.OutgoingEmails.Where(e => e.FailedAtUtc < cutoff).ExecuteDeleteAsync(cancellationToken));
 
         if (result != new CleanupResult(0, 0, 0, 0))
             logger.LogInformation("Notification cleanup deleted {Result}.", result);

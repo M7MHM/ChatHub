@@ -259,18 +259,20 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
     }
 
     [Fact]
-    public async Task DeleteMyAccount_WritesOnlyUserDeleted()
+    public async Task DeleteMyAccount_WritesUserDeletedAndMemberLeftForEachGroup()
     {
         var crew = await CreateCrewAsync();
 
         (await SendAsync(crew.Rex, new DeleteMyAccountCommand())).ShouldSucceed();
 
         (await PublishedAsync<UserDeleted>()).ShouldHaveSingleItem().UserId.ShouldBe(crew.Rex);
-        (await OutboxAsync()).ShouldHaveSingleItem();
+        (await PublishedAsync<MemberLeft>()).ShouldHaveSingleItem().ShouldBe(new MemberLeft(default, default, crew.Group, crew.Rex),
+            new MemberLeftComparer());
+        (await OutboxAsync()).Count.ShouldBe(2);
     }
 
     [Fact]
-    public async Task OtherDomainEvents_WriteNothing()
+    public async Task UnpublishedDomainEvents_WriteNothing()
     {
         var crew = await CreateCrewAsync();
         var hello = await SendTextAsync(crew.Paula, crew.Group, "hello");
@@ -278,12 +280,75 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
 
         await AddMemberAsync(crew.Paula, crew.Group, crew.Sam);
         (await SendAsync(crew.Paula, new UpdateGroupInfoCommand("Crew 2") { ConversationId = crew.Group })).ShouldSucceed();
-        (await SendAsync(crew.Paula, new EditMessageCommand("hello!") { MessageId = hello.Id })).ShouldSucceed();
         (await SendAsync(crew.Quinn, new MarkAsDeliveredCommand(hello.Id) { ConversationId = crew.Group })).ShouldSucceed();
-        (await SendAsync(crew.Paula, new DeleteMessageCommand(hello.Id))).ShouldSucceed();
-        await GoOnlineAsync(crew.Quinn);
+        (await SendAsync(crew.Paula, new ChangeMemberRoleCommand(GroupRole.Admin) { ConversationId = crew.Group, UserId = crew.Quinn }))
+            .ShouldSucceed();
+        (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
+        await ClearOutboxAsync();
+        (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
 
         (await OutboxAsync()).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task EditAndDeleteForEveryone_WriteMessageEditedWithTheNewPreviewThenMessageDeleted()
+    {
+        var crew = await CreateCrewAsync();
+        var hello = await SendTextAsync(crew.Paula, crew.Group, "hello");
+        await ClearOutboxAsync();
+
+        (await SendAsync(crew.Paula, new EditMessageCommand("hello\n  everyone") { MessageId = hello.Id })).ShouldSucceed();
+        (await SendAsync(crew.Paula, new DeleteMessageCommand(hello.Id))).ShouldSucceed();
+
+        var edited = (await PublishedAsync<MessageEdited>()).ShouldHaveSingleItem();
+        (edited.ChatMessageId, edited.ConversationId, edited.Preview).ShouldBe((hello.Id, crew.Group, "hello everyone"));
+        var editedAt = await QueryDbAsync(db => db.Messages.Where(m => m.Id == hello.Id).Select(m => m.EditedAtUtc).SingleAsync());
+        edited.EditedAtUtc.ShouldBe(editedAt!.Value, TimeSpan.FromTicks(10));
+        var deleted = (await PublishedAsync<MessageDeleted>()).ShouldHaveSingleItem();
+        (deleted.ChatMessageId, deleted.ConversationId).ShouldBe((hello.Id, crew.Group));
+        (await OutboxAsync()).Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task LeaveKickAndMute_WriteMemberLeftMemberKickedAndMuteChangesOnlyWhenTheStateChanges()
+    {
+        var crew = await CreateCrewAsync();
+        await ClearOutboxAsync();
+
+        (await SendAsync(crew.Paula, new KickMemberCommand(crew.Group, crew.Rex))).ShouldSucceed();
+        (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
+        (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
+        (await SendAsync(crew.Quinn, new UnmuteConversationCommand(crew.Group))).ShouldSucceed();
+        (await SendAsync(crew.Quinn, new LeaveConversationCommand(crew.Group))).ShouldSucceed();
+
+        var kicked = (await PublishedAsync<MemberKicked>()).ShouldHaveSingleItem();
+        (kicked.ConversationId, kicked.UserId, kicked.KickedByUserId).ShouldBe((crew.Group, crew.Rex, crew.Paula));
+        (await PublishedAsync<ConversationMuteChanged>()).Select(e => (e.ConversationId, e.UserId, e.IsMuted))
+            .ShouldBe([(crew.Group, crew.Quinn, true), (crew.Group, crew.Quinn, false)]);
+        var left = (await PublishedAsync<MemberLeft>()).ShouldHaveSingleItem();
+        (left.ConversationId, left.UserId).ShouldBe((crew.Group, crew.Quinn));
+    }
+
+    [Fact]
+    public async Task PresenceChanges_WriteUserStatusChanged()
+    {
+        var crew = await CreateCrewAsync();
+
+        await GoOnlineAsync(crew.Quinn);
+        await UseDbAsync(async db =>
+        {
+            (await db.UserProfiles.FirstAsync(u => u.Id == crew.Quinn)).GoOffline();
+            await db.SaveChangesAsync();
+        });
+
+        (await PublishedAsync<UserStatusChanged>()).Select(e => (e.UserId, e.IsOnline)).ShouldBe([(crew.Quinn, true), (crew.Quinn, false)]);
+    }
+
+    private sealed class MemberLeftComparer : IEqualityComparer<MemberLeft>
+    {
+        public bool Equals(MemberLeft? x, MemberLeft? y) => (x?.ConversationId, x?.UserId) == (y?.ConversationId, y?.UserId);
+
+        public int GetHashCode(MemberLeft obj) => HashCode.Combine(obj.ConversationId, obj.UserId);
     }
 
     [Fact]

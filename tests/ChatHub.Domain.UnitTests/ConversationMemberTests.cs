@@ -299,4 +299,21 @@ public sealed class ConversationMemberTests
 
         Should.Throw<ArgumentNullException>(() => member.MarkAsRead(null!));
     }
+
+    [Fact]
+    public void MuteAndUnmute_RaiseMemberMuteChangedOnlyWhenTheStateChanges()
+    {
+        var member = ConversationMember.Create(Guid.NewGuid(), Guid.NewGuid());
+
+        member.Mute();
+        member.Mute();
+        member.Unmute();
+        member.Unmute();
+
+        member.DomainEvents.ShouldBe(
+        [
+            new MemberMuteChangedEvent(member.ConversationId, member.UserId, true),
+            new MemberMuteChangedEvent(member.ConversationId, member.UserId, false)
+        ]);
+    }
 }

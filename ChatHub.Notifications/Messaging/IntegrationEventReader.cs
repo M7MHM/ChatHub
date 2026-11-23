@@ -56,6 +56,15 @@ public static class IntegrationEventReader
         EmailVerificationRequested v when v.UserId == Guid.Empty || v.DisplayName is null || !IsEmailAddress(v.Email) =>
             "userId, displayName and a valid email are required.",
         EmailVerificationRequested v when !IsHttpUrl(v.VerificationLink) => "verificationLink must be an absolute http(s) URL.",
+        MessageEdited m when m.ChatMessageId == Guid.Empty || m.ConversationId == Guid.Empty || m.Preview is null =>
+            "chatMessageId, conversationId and preview are required.",
+        MessageDeleted m when m.ChatMessageId == Guid.Empty || m.ConversationId == Guid.Empty =>
+            "chatMessageId and conversationId are required.",
+        MemberLeft m when m.ConversationId == Guid.Empty || m.UserId == Guid.Empty => "conversationId and userId are required.",
+        MemberKicked m when m.ConversationId == Guid.Empty || m.UserId == Guid.Empty => "conversationId and userId are required.",
+        ConversationMuteChanged m when m.ConversationId == Guid.Empty || m.UserId == Guid.Empty =>
+            "conversationId and userId are required.",
+        UserStatusChanged s when s.UserId == Guid.Empty => "userId is required.",
         _ when integrationEvent.MessageId == Guid.Empty => "messageId is required.",
         _ => null
     };

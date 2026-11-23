@@ -148,7 +148,9 @@ services:
       context: .
       target: notifications
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      # Its own variable, so the worker can run as Development (no suppressed domains: seeded @chathub.test mail reaches
+      # Mailpit) while the api stays Production. Production never emails reserved domains (Notifications:SuppressedEmailDomains).
+      ASPNETCORE_ENVIRONMENT: ${NOTIFICATIONS_ENVIRONMENT:-Production}
       ConnectionStrings__Notifications: *notifications-db-connection
       RabbitMq__Host: rabbitmq
       RabbitMq__User: ${RABBITMQ_USER:-chathub}
@@ -164,6 +166,14 @@ services:
       Notifications__CooldownMinutes: ${NOTIFICATIONS_COOLDOWN_MINUTES:-15}
       Notifications__IncludePreview: ${NOTIFICATIONS_INCLUDE_PREVIEW:-true}
       Notifications__AppBaseUrl: ${NOTIFICATIONS_APP_BASE_URL:-http://localhost:3000}
+      # Sending limits, sized for Brevo's free tier (300 emails a day): see docs/NOTIFICATIONS.md#sending-limits.
+      Notifications__MaxEmailsPerMinute: ${NOTIFICATIONS_MAX_EMAILS_PER_MINUTE:-20}
+      Notifications__MaxDigestsPerMinute: ${NOTIFICATIONS_MAX_DIGESTS_PER_MINUTE:-15}
+      Notifications__MaxEmailsPerDay: ${NOTIFICATIONS_MAX_EMAILS_PER_DAY:-250}
+      Notifications__MaxDigestsPerDay: ${NOTIFICATIONS_MAX_DIGESTS_PER_DAY:-200}
+      Notifications__MaxEmailsPerRecipientPerHour: ${NOTIFICATIONS_MAX_EMAILS_PER_RECIPIENT_PER_HOUR:-4}
+      # How often a digest held for an online or unverified recipient is checked again.
+      Notifications__HoldRecheckSeconds: ${NOTIFICATIONS_HOLD_RECHECK_SECONDS:-60}
     # A background worker must not starve the API. Measured idle with docker stats: ~0.3% CPU and ~96 MiB, so a quarter
     # of a core and 192M leave room for a burst of digests; .NET sizes its GC heap to the memory limit.
     deploy:

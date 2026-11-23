@@ -77,6 +77,97 @@ namespace ChatHub.Notifications.Persistence.Migrations
                     b.ToTable("DigestMessages", (string)null);
                 });
 
+            modelBuilder.Entity("ChatHub.Notifications.Persistence.MessageSnapshot", b =>
+                {
+                    b.Property<Guid>("ChatMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EditedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Preview")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SenderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ChatMessageId");
+
+                    b.HasIndex("RecordedAtUtc");
+
+                    b.ToTable("MessageSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("ChatHub.Notifications.Persistence.OutgoingEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Link")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime?>("LockedUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Template")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ToAddress")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc")
+                        .HasDatabaseName("IX_OutgoingEmails_Pending")
+                        .HasFilter("\"FailedAtUtc\" IS NULL");
+
+                    b.ToTable("OutgoingEmails", (string)null);
+                });
+
             modelBuilder.Entity("ChatHub.Notifications.Persistence.PendingDigest", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -188,6 +279,22 @@ namespace ChatHub.Notifications.Persistence.Migrations
                     b.HasKey("UserId");
 
                     b.ToTable("Recipients", (string)null);
+                });
+
+            modelBuilder.Entity("ChatHub.Notifications.Persistence.RecipientPresence", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsOnline")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("RecipientPresence", (string)null);
                 });
 
             modelBuilder.Entity("ChatHub.Notifications.Persistence.SentNotification", b =>

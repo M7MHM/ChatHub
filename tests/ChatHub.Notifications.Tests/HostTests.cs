@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ChatHub.Notifications.Persistence;
 using ChatHub.Notifications.Tests.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
@@ -18,14 +19,34 @@ public sealed class HostTests(NotificationsFixture fixture) : NotificationsTestB
         (await client.GetStringAsync("/health/live")).ShouldBe("Healthy");
         var deadline = DateTime.UtcNow.AddSeconds(15);
         var ready = await client.GetAsync("/health/ready");
-        while (await ready.Content.ReadAsStringAsync() != "Healthy" && DateTime.UtcNow < deadline)
+        while (StatusOf(await ready.Content.ReadAsStringAsync()) != "Healthy" && DateTime.UtcNow < deadline)
         {
             await Task.Delay(100);
             ready = await client.GetAsync("/health/ready");
         }
 
         ((int)ready.StatusCode).ShouldBe(200);
-        (await ready.Content.ReadAsStringAsync()).ShouldBe("Healthy");
+        using var report = JsonDocument.Parse(await ready.Content.ReadAsStringAsync());
+        report.RootElement.GetProperty("status").GetString().ShouldBe("Healthy");
+        var checks = report.RootElement.GetProperty("checks");
+        checks.EnumerateObject().Select(c => c.Name).ShouldBe(["database", "rabbitmq", "sending"], ignoreOrder: true);
+        var sending = checks.GetProperty("sending").GetProperty("data");
+        sending.GetProperty("sentToday").GetInt32().ShouldBe(0);
+        sending.GetProperty("maxEmailsPerDay").GetInt32().ShouldBe(100000);
+        sending.GetProperty("digestsWaiting").GetInt32().ShouldBe(0);
+    }
+
+    private static string? StatusOf(string body)
+    {
+        try
+        {
+            using var report = JsonDocument.Parse(body);
+            return report.RootElement.GetProperty("status").GetString();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     [Theory]
@@ -70,6 +91,42 @@ public sealed class HostTests(NotificationsFixture fixture) : NotificationsTestB
         (await QueryAsync(db => db.ConversationReads.CountAsync())).ShouldBe(1);
         (await QueryAsync(db => db.DigestCooldowns.CountAsync())).ShouldBe(1);
     }
+
+    [Fact]
+    public async Task Cleanup_DeletesMessageSnapshotsAndFailedEmailsPastTheRetentionButKeepsPendingEmails()
+    {
+        var now = Now;
+        var conversationId = Guid.CreateVersion7();
+        await QueryAsync(async db =>
+        {
+            db.MessageSnapshots.AddRange(
+                new MessageSnapshot { ChatMessageId = Guid.CreateVersion7(), ConversationId = conversationId, RecordedAtUtc = now.AddDays(-8) },
+                new MessageSnapshot { ChatMessageId = Guid.CreateVersion7(), ConversationId = conversationId, RecordedAtUtc = now.AddDays(-1) });
+            db.OutgoingEmails.AddRange(
+                Email(createdAtUtc: now.AddDays(-9), failedAtUtc: now.AddDays(-8)),
+                Email(createdAtUtc: now.AddDays(-2), failedAtUtc: now.AddDays(-1)),
+                Email(createdAtUtc: now.AddDays(-9), failedAtUtc: null));
+            return await db.SaveChangesAsync();
+        });
+
+        var result = await Services.GetRequiredService<RetentionCleanupService>().CleanupAsync(CancellationToken.None);
+
+        (result.MessageSnapshots, result.FailedEmails).ShouldBe((1, 1));
+        (await QueryAsync(db => db.MessageSnapshots.CountAsync())).ShouldBe(1);
+        (await QueryAsync(db => db.OutgoingEmails.CountAsync())).ShouldBe(2);
+    }
+
+    private static OutgoingEmail Email(DateTime createdAtUtc, DateTime? failedAtUtc) => new()
+    {
+        UserId = Guid.CreateVersion7(),
+        Template = OutgoingEmailTemplate.EmailVerification,
+        ToAddress = "bob@example.com",
+        DisplayName = "Bob",
+        Link = "https://api.chat.example.test/api/auth/verify-email?token=x",
+        ExpiresAtUtc = createdAtUtc.AddHours(24),
+        CreatedAtUtc = createdAtUtc,
+        FailedAtUtc = failedAtUtc
+    };
 
     private WebApplicationFactory<Program> Factory(IReadOnlyDictionary<string, string?>? overrides = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>

@@ -18,6 +18,8 @@ public sealed class IntegrationEventProcessor(
     ConversationReadHandler reads,
     UserEventsHandler users,
     EmailVerificationHandler verifications,
+    ConversationEventsHandler conversations,
+    PresenceHandler presence,
     TimeProvider timeProvider) : IIntegrationEventProcessor
 {
     public async Task<bool> ProcessAsync(IIntegrationEvent integrationEvent, CancellationToken cancellationToken)
@@ -41,6 +43,12 @@ public sealed class IntegrationEventProcessor(
                 e.EmailNotificationsEnabled, e.UnsubscribeLink, e.OccurredAtUtc), cancellationToken),
             UserDeleted e => users.DeleteAsync(e.UserId, e.OccurredAtUtc, cancellationToken),
             EmailVerificationRequested e => verifications.HandleAsync(e, nowUtc, cancellationToken),
+            MessageEdited e => conversations.MessageEditedAsync(e, nowUtc, cancellationToken),
+            MessageDeleted e => conversations.MessageDeletedAsync(e, nowUtc, cancellationToken),
+            MemberLeft e => conversations.MemberRemovedAsync(e.ConversationId, e.UserId, e.OccurredAtUtc, cancellationToken),
+            MemberKicked e => conversations.MemberRemovedAsync(e.ConversationId, e.UserId, e.OccurredAtUtc, cancellationToken),
+            ConversationMuteChanged e => conversations.MuteChangedAsync(e, cancellationToken),
+            UserStatusChanged e => presence.HandleAsync(e, cancellationToken),
             _ => throw new NotSupportedException($"{integrationEvent.GetType().Name} has no handler.")
         };
         await handled;

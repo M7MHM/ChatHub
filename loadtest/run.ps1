@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet('single', 'matrix', 'max')] [string]$Mode = 'single',
     [int]$Rate = 30,
     [string]$StepRates = '',
@@ -12,7 +12,8 @@ param(
     [int]$Steady = 120,
     [int]$RampDown = 15,
     [string]$ExtraEnv = '',
-    [int]$MaxPoolSize = 0
+    [int]$MaxPoolSize = 0,
+    [switch]$StopNotifications
 )
 
 Add-Type -Namespace LoadTest -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint flags);'
@@ -38,6 +39,7 @@ function Set-Configuration([int]$ApiReplicas, [string]$CachingEnabled) {
     $env:CACHING_ENABLED = $CachingEnabled
     docker @compose up -d 2>&1 | Out-Null
     docker @compose up -d --no-deps --force-recreate --scale "api=$ApiReplicas" api 2>&1 | Out-Null
+    if ($StopNotifications) { docker @compose stop notifications 2>&1 | Out-Null }
     Invoke-Psql 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' | Out-Null
     Wait-Replicas $ApiReplicas
 }

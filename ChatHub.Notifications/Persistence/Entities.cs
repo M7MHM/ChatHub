@@ -90,3 +90,46 @@ public sealed class SentNotification
     public int MessageCount { get; set; }
     public DateTime SentAtUtc { get; set; }
 }
+
+public sealed class MessageSnapshot
+{
+    public Guid ChatMessageId { get; set; }
+    public Guid ConversationId { get; set; }
+    public DateTime? SentAtUtc { get; set; }
+    public string? SenderName { get; set; }
+    public string? Preview { get; set; }
+    public DateTime? EditedAtUtc { get; set; }
+    public DateTime? DeletedAtUtc { get; set; }
+    public DateTime RecordedAtUtc { get; set; }
+}
+
+public sealed class RecipientPresence
+{
+    public Guid UserId { get; set; }
+    public bool IsOnline { get; set; }
+    public DateTime ChangedAtUtc { get; set; }
+}
+
+public enum OutgoingEmailTemplate
+{
+    EmailVerification
+}
+
+public sealed class OutgoingEmail
+{
+    public const int MaxTemplateLength = 40;
+    public const int MaxErrorLength = 500;
+
+    public Guid Id { get; set; } = Guid.CreateVersion7();
+    public Guid UserId { get; set; }
+    public OutgoingEmailTemplate Template { get; set; }
+    public string ToAddress { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Link { get; set; } = string.Empty;
+    public DateTime ExpiresAtUtc { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime? LockedUntilUtc { get; set; }
+    public int Attempts { get; set; }
+    public string? LastError { get; set; }
+    public DateTime? FailedAtUtc { get; set; }
+}

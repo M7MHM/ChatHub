@@ -14,6 +14,31 @@ docker compose --profile seed run --rm seeder --confirm --reset    # delete seed
 Seeded users sign in as `seed-0001@chathub.test` … `seed-1000@chathub.test` with the password `Seed12345`.
 A second run without `--reset` changes nothing.
 
+### Seeded users and the notification service
+
+The notification service only emails verified addresses and only knows users it received events for. The seeder writes
+rows directly (no events), and data seeded before email verification existed is unverified. One run fixes both:
+
+```bash
+docker compose --profile seed run --rm seeder --confirm --verify-seeded --backfill-notifications
+```
+
+- `--verify-seeded` marks seed users (`@chathub.test`) whose email is not verified yet as verified at their creation
+  time. No other user is touched. New seeds are created verified, so a fresh database only needs the backfill.
+- `--backfill-notifications` then queues one `UserProfileUpdated` per user through the outbox (verified flag, email
+  preference, and an unsubscribe link for users that have none), so the worker learns about every user.
+
+On the dev database: 1,000 seed users verified (the 19 other users unchanged), 1,019 events queued with 1,017 new
+unsubscribe links in 3.3 s, and all 1,000 seed users known to the worker as verified about 20 s later.
+
+The worker never emails reserved domains such as `.test` in Production. For load tests run it as Development, so seeded
+users' digests reach Mailpit, and keep in mind the [sending limits](../docs/NOTIFICATIONS.md#sending-limits) (20 a minute,
+250 a day by default; `NOTIFICATIONS_MAX_*` raise them):
+
+```powershell
+$env:NOTIFICATIONS_ENVIRONMENT = 'Development'
+```
+
 ## 2. Start the stack with the load-test override
 
 `docker-compose.loadtest.yml` raises the auth rate limits (k6 logs in hundreds of users from one IP), limits every API
@@ -52,6 +77,15 @@ used in the report). `results/` is gitignored.
 - runs k6, then samples `docker stats` during the steady phase only (`<name>.stats.csv`, `<name>.cpu.json`);
 - records the PostgreSQL backends per client right after the run (`<name>.connections.txt`), restarts the API so psql can get a connection, and saves the top SQL statements from `pg_stat_statements` (`<name>.pgstat.txt`);
 - keeps Windows from entering idle standby while it runs, and if the machine still suspended during a run (lid closed), writes `<name>.INVALID.txt` and prints a red warning. Discard such runs: a frozen Docker VM produces timeouts and expired tokens, not real numbers.
+
+`-StopNotifications` stops the notification worker after configuring the stack, for a control run without it (events
+then wait in RabbitMQ). The notification runs of 2026-11-23 used:
+
+```powershell
+$env:NOTIFICATIONS_ENVIRONMENT = 'Development'
+powershell -ExecutionPolicy Bypass -File loadtestun.ps1 -Mode single -Replicas 2 -Caching true -Scenario 'read-heavy+realtime' -Rate 70 -RampUp 20 -Warmup 60 -Steady 120 -RampDown 10 -ExtraEnv 'RT_DURATION=185' -Name notif3b-r2-70
+powershell -ExecutionPolicy Bypass -File loadtestun.ps1 -Mode single -Replicas 2 -Caching true -Scenario 'read-heavy+realtime' -Rate 70 -RampUp 20 -Warmup 60 -Steady 120 -RampDown 10 -ExtraEnv 'RT_DURATION=185' -Name notif3-stopped-r2-70 -StopNotifications
+```
 
 `-MaxPoolSize` overrides Npgsql's `Maximum Pool Size` per API replica. Without it the compose default applies
 (`DB_MAX_POOL_SIZE`, 30, sized against PostgreSQL's `max_connections`; see docker-compose.yml and docs/PERFORMANCE.md).

@@ -66,11 +66,23 @@ public abstract class NotificationsTestBase(NotificationsFixture fixture) : IAsy
         ["Notifications:AppBaseUrl"] = "https://chat.example.test/",
         ["Notifications:MaxAttempts"] = "3",
         ["Notifications:RetryBaseDelaySeconds"] = "30",
-        ["Notifications:BatchSize"] = "20"
+        ["Notifications:BatchSize"] = "20",
+        ["Notifications:MaxEmailsPerMinute"] = "1000",
+        ["Notifications:MaxDigestsPerMinute"] = "1000",
+        ["Notifications:MaxEmailsPerDay"] = "100000",
+        ["Notifications:MaxDigestsPerDay"] = "100000",
+        ["Notifications:MaxEmailsPerRecipientPerHour"] = "1000",
+        ["Notifications:SuppressedEmailDomains"] = ""
     };
 
     protected virtual void ConfigureServices(IServiceCollection services)
     {
+    }
+
+    protected async Task RestartAsync()
+    {
+        if (_services is not null) await _services.DisposeAsync();
+        _services = BuildServices();
     }
 
     protected async Task<bool> ProcessAsync(IIntegrationEvent integrationEvent)

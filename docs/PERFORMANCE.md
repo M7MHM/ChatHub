@@ -405,6 +405,35 @@ Same scenario and parameters as the outbox runs above. The [notification service
 - Every run also shows the API ~20 points busier in the first 40 s of the steady phase than in the rest (warm-up after the replicas are recreated), so differences under ~2× remain noise.
 - Not changed in code. The fixes are operational: give the worker its own CPU (another host, or a CPU limit like the API replicas'). If it must share, rate-limit sends or reuse one SMTP connection per batch; see [NOTIFICATIONS.md](NOTIFICATIONS.md).
 
+### Notification limits and new events (2026-11-23)
+
+The same scenario again (2 replicas, cache ON, 70 it/s, `read-heavy+realtime`, `RT_DURATION=185`, same phases), after the notification pass that added the sending limits (20 emails a minute, 15 of them digests; 250 a day, 200 digests), the reused SMTP connection, the worker's 0.25 CPU / 192M limit and pool of 5, and the new events (`message.deleted`, `message.edited`, leave/kick, mute, `user.status-changed`). The 1,000 seed users were marked verified and backfilled first (`--verify-seeded --backfill-notifications`), and the worker ran as Development so their digests were allowed (`NOTIFICATIONS_ENVIRONMENT=Development`), with production timings (120 s delay, 15 min cooldown). Result files `notif3-r2-70`, `notif3b-r2-70`, `notif3-stopped-r2-70`.
+
+| p95 (ms) | 11-22 control, messaging off | 11-22 worker running | 11-22 worker stopped | A: worker, seed mail suppressed | **B: worker sending, limited** | C: worker stopped, right after B |
+|---|---|---|---|---|---|---|
+| `GET /me` | 3.7 | 34.2 | 3.9 | 34.3 | 78.5 | 1,397.7 |
+| `GET /conversations` | 18.0 | 47.8 | 17.0 | 43.4 | 103.1 | 1,741.9 |
+| `GET /…/messages` | 7.2 | 43.2 | 8.3 | 27.5 | 93.1 | 919.6 |
+| `POST /…/messages` | 22.1 | 99.3 | 29.6 | 75.1 | 198.6 | 817.2 |
+| All requests (p99) | 10.6 (41.2) | 45.2 (102.3) | 12.9 (41.5) | 37.2 (1,343.9) | 95.8 (221.1) | 1,226.4 (3,407.3) |
+| Dropped iterations | – | – | – | 83 | 0 | 424 |
+| Realtime delivery p95 | 58 | 96 | 44 | 55 | 308 | 3,555 |
+| API / PostgreSQL CPU (avg %) | 41 / 21.6 | 55–56 / 43.7 | 41–42 / 25.8 | 45 / 35.3 | 61–66 / 50.8 | 90–96 / 65.7 |
+| Worker CPU avg (max) / memory | – | 28.2 (162) / – | stopped | 5.9 (18.9) / 78 MiB | 11.5 (26.0) / 87 MiB (max 94) | stopped |
+| Emails sent | – | 2,440 digests, 2,063 in one minute | – | 0 | 15 digests a minute | – |
+| Thresholds | passed | passed | passed | passed | realtime p95 failed | 6 failed |
+
+0 errors and 0 lost realtime messages in every run.
+
+- **Run A is invalid for the worker comparison.** `.dockerignore` keeps `appsettings.Development.json` out of the image, so the worker in Development fell back to the reserved-domain list and suppressed every `@chathub.test` recipient: it consumed all 3,343 events but created no digest. All containers also spiked together at two moments (API at its 1-CPU cap, PostgreSQL 164%, Redis and nginx too), a host hiccup behind the 6.4 s maximum and the 83 dropped iterations. The default is now decided from the environment in code (see [NOTIFICATIONS.md](NOTIFICATIONS.md#suppressed-domains)), and run B is the re-run.
+- **The host was not in the state of 11-22.** Run C, with the worker stopped, ran right after B and was 13× slower than B: the API needed 90–96% CPU for the same requests that took 41% in the 11-22 stopped run, k6 itself peaked at 5.2 cores, and the laptop had 1.3 GB of 15.7 GB RAM free with desktop applications open. The API latencies of this session therefore cannot be compared with the 11-22 baselines, nor reliably with each other; whether "worker running" now matches "worker stopped" could not be confirmed or refuted on this machine today. Repeat B and C back to back on an idle machine before drawing that conclusion.
+- **What the runs do show about the worker:**
+  - It stayed within its limit: 11.5% CPU on average with 5 of 58 samples at the 0.25 CPU cap (26%), against 28.2% average and 162% peaks in the 11-22 run without a limit; memory 87 MiB average, 94 MiB at most, of 192M.
+  - The sending limit held: exactly 15 digests a minute during and after the run, instead of 2,063 in one minute. 2,347 due digests were still waiting at the end; with 200 digests a day, most of them would expire unsent after 24 h, which is the intended behaviour on Brevo's free tier (and `/health/ready` reports `sending` Degraded after 30 minutes).
+  - One reused SMTP connection: Mailpit used 0.5% CPU, against 7.5% (max 29.5%) when every email opened its own connection.
+  - In PostgreSQL the worker's fold statement took 0.80 ms on average (2.5 s in total, 0.74 ms in the 11-22 run); the new statements (message snapshot upsert, usage count, presence and per-recipient queries) are not in the top 10 (each under 0.5 s in total).
+- **Presence volume:** 100 `UserStatusChanged` events per run, one per connect and one per disconnect of the 50 realtime listeners, against 3,201 `MessageSent`: 3% of the outbox and broker traffic. Read-heavy users do not open sockets, and the events are raised only on first-connection / last-disconnection transitions, not per request.
+
 ---
 
 # Before: baseline (2026-11-21)

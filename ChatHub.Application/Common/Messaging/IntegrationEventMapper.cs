@@ -25,7 +25,10 @@ public static class IntegrationEventMapper
             .. await db.MessagesSentAsync(domainEvents.OfType<MessageSentEvent>().ToList(), cancellationToken),
             .. ConversationsRead(domainEvents.OfType<MessageReadEvent>()),
             .. db.UserChanges(domainEvents, nowUtc, links),
-            .. db.EmailVerificationsRequested(domainEvents.OfType<EmailVerificationRequestedEvent>(), nowUtc, links)
+            .. db.EmailVerificationsRequested(domainEvents.OfType<EmailVerificationRequestedEvent>(), nowUtc, links),
+            .. db.MessageChanges(domainEvents, nowUtc),
+            .. MembershipChanges(domainEvents, nowUtc),
+            .. PresenceChanges(domainEvents.OfType<UserStatusChangedEvent>(), nowUtc)
         ];
         return integrationEvents;
     }
@@ -123,6 +126,43 @@ public static class IntegrationEventMapper
         IEnumerable<EmailVerificationRequestedEvent> events, DateTime nowUtc, EmailLinks links) =>
         events.Select(e => new EmailVerificationRequested(Guid.CreateVersion7(), nowUtc, e.UserId, e.Email,
             db.TrackedUser(e.UserId).DisplayName, links.VerifyEmail(e.Token), DatabasePrecision(e.ExpiresAtUtc)));
+
+    private static IEnumerable<IIntegrationEvent> MessageChanges(this IApplicationDbContext db,
+        IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc)
+    {
+        foreach (var messageId in events.OfType<MessageEditedEvent>().Select(e => e.MessageId).Distinct())
+        {
+            var message = db.Messages.Local.FirstOrDefault(m => m.Id == messageId) ?? NotTracked<Message>(messageId);
+            if (message.Type == MessageType.System || message.IsDeleted) continue;
+            yield return new MessageEdited(Guid.CreateVersion7(), nowUtc, message.Id, message.ConversationId,
+                MessagePreview.SingleLine(message.Type, message.Content, MessageSent.MaxPreviewLength),
+                DatabasePrecision(message.EditedAtUtc ?? nowUtc));
+        }
+
+        foreach (var deleted in events.OfType<MessageDeletedEvent>().DistinctBy(e => e.MessageId))
+        {
+            if (db.Messages.Local.FirstOrDefault(m => m.Id == deleted.MessageId) is { Type: MessageType.System }) continue;
+            yield return new MessageDeleted(Guid.CreateVersion7(), nowUtc, deleted.MessageId, deleted.ConversationId);
+        }
+    }
+
+    private static IEnumerable<IIntegrationEvent> MembershipChanges(IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc)
+    {
+        foreach (var left in events.OfType<MemberLeftEvent>().DistinctBy(e => (e.ConversationId, e.UserId)))
+            yield return new MemberLeft(Guid.CreateVersion7(), nowUtc, left.ConversationId, left.UserId);
+
+        foreach (var kicked in events.OfType<MemberKickedEvent>().DistinctBy(e => (e.ConversationId, e.KickedUserId)))
+            yield return new MemberKicked(Guid.CreateVersion7(), nowUtc, kicked.ConversationId, kicked.KickedUserId,
+                kicked.KickedByUserId);
+
+        foreach (var mute in events.OfType<MemberMuteChangedEvent>().GroupBy(e => (e.ConversationId, e.UserId)).Select(g => g.Last()))
+            yield return new ConversationMuteChanged(Guid.CreateVersion7(), nowUtc, mute.ConversationId, mute.UserId, mute.IsMuted);
+    }
+
+    private static IEnumerable<IIntegrationEvent> PresenceChanges(IEnumerable<UserStatusChangedEvent> events, DateTime nowUtc) =>
+        events.GroupBy(e => e.UserId)
+            .Select(g => g.Last())
+            .Select(e => new UserStatusChanged(Guid.CreateVersion7(), nowUtc, e.UserId, e.IsOnline));
 
     private static DateTime DatabasePrecision(DateTime utc) =>
         new(utc.Ticks - utc.Ticks % TimeSpan.TicksPerMicrosecond, DateTimeKind.Utc);

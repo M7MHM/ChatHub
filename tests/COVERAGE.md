@@ -27,13 +27,13 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
-| ChatHub.Domain.UnitTests | 176 | 228 |
-| ChatHub.Application.IntegrationTests | 298 | 320 |
+| ChatHub.Domain.UnitTests | 177 | 229 |
+| ChatHub.Application.IntegrationTests | 302 | 324 |
 | ChatHub.Api.IntegrationTests | 173 | 177 |
-| ChatHub.Notifications.Tests | 62 | 75 |
-| **Total** | **709** | **800** |
+| ChatHub.Notifications.Tests | 92 | 117 |
+| **Total** | **744** | **847** |
 
-Since the harness port: the transactional outbox and RabbitMQ publisher added 3 domain, 26 application and 4 API test cases (`OutboxTests`, `OutboxPublisherTests`, `MessagingTests`; see [docs/MESSAGING.md](../docs/MESSAGING.md#tests)). The notification service added its own project (47 cases) and 2 backfill tests in `SeederTests` (see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#tests)). Phone numbers through libphonenumber (Egyptian mobiles in local, national or international form, other countries with +, stored in E.164) replaced the 6 `PhoneNumberTests` methods with 11 (35 cases) and added 17 application cases in `AuthTests` (formats, duplicates and login across formats, landlines and wrong lengths rejected, a legacy stored value still loads) and 1 API case. SMTP connection reuse added 3 `EmailChannelTests`. Email verification, email preferences and one-click unsubscribe added 14 domain cases (`EmailVerificationTests`), 27 application cases (`EmailVerificationTests`, `EmailPreferenceTests`, 4 in `OutboxTests`, 1 in `OutboxPublisherTests`, 3 in `SeederTests`, 1 in `PersistenceTests`), 10 API cases (`EmailTests`) and 25 notification cases (`VerificationEmailTests`, `DigestEligibilityTests`, `EventContractTests`, 3 in `RecipientTests`, 4 in `EmailChannelTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#email-verification). The messaging tests also start `rabbitmq:4-management`, and `EmailChannelTests` starts `axllent/mailpit`; each test class or collection that stops a broker has its own container.
+Since the harness port: the transactional outbox and RabbitMQ publisher added 3 domain, 26 application and 4 API test cases (`OutboxTests`, `OutboxPublisherTests`, `MessagingTests`; see [docs/MESSAGING.md](../docs/MESSAGING.md#tests)). The notification service added its own project (47 cases) and 2 backfill tests in `SeederTests` (see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#tests)). Phone numbers through libphonenumber (Egyptian mobiles in local, national or international form, other countries with +, stored in E.164) replaced the 6 `PhoneNumberTests` methods with 11 (35 cases) and added 17 application cases in `AuthTests` (formats, duplicates and login across formats, landlines and wrong lengths rejected, a legacy stored value still loads) and 1 API case. SMTP connection reuse added 3 `EmailChannelTests`. Email verification, email preferences and one-click unsubscribe added 14 domain cases (`EmailVerificationTests`), 27 application cases (`EmailVerificationTests`, `EmailPreferenceTests`, 4 in `OutboxTests`, 1 in `OutboxPublisherTests`, 3 in `SeederTests`, 1 in `PersistenceTests`), 10 API cases (`EmailTests`) and 25 notification cases (`VerificationEmailTests`, `DigestEligibilityTests`, `EventContractTests`, 3 in `RecipientTests`, 4 in `EmailChannelTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#email-verification). The missing events, sending limits and the transactional email queue added 1 domain case (mute events), 4 application cases (3 in `OutboxTests`, 1 in `SeederTests`; two `OutboxTests` were rewritten because edits, deletions, leaving and presence are now published) and 42 notification cases (`ConversationEventTests` 12, `PresenceTests` 4, `SendingLimitTests` 7, `SuppressionTests` 16, 2 more in `VerificationEmailTests`, which now covers the queue, and 1 in `HostTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#sending-limits). The messaging tests also start `rabbitmq:4-management`, and `EmailChannelTests` starts `axllent/mailpit`; each test class or collection that stops a broker has its own container.
 
 ## What changed in the port
 
@@ -48,13 +48,13 @@ Since the harness port: the transactional outbox and RabbitMQ publisher added 3 
 
 ## Domain invariants added beyond the harnesses
 
-`ChatHub.Domain.UnitTests` has 168 test methods that cover Domain rules the harnesses never exercised:
+`ChatHub.Domain.UnitTests` has 169 test methods that cover Domain rules the harnesses never exercised:
 
 | Class | Added test methods |
 |---|---:|
 | `AttachmentTests` | 3 |
 | `BaseEntityTests` | 2 |
-| `ConversationMemberTests` | 24 |
+| `ConversationMemberTests` | 25 |
 | `ConversationTests` | 46 |
 | `EmailTests` | 5 |
 | `EmailVerificationTests` | 14 |

@@ -36,6 +36,23 @@ if (string.IsNullOrWhiteSpace(connectionString))
 }
 
 var target = new NpgsqlConnectionStringBuilder(connectionString);
+if (options.VerifySeeded)
+{
+    try
+    {
+        await using var db = ApplicationDbContextFactory.Create(connectionString);
+        var verified = await new DataSeeder(db, options, Console.Out).VerifySeededUsersAsync();
+        Console.WriteLine($"Marked {verified} seed users (@{SeedOptions.EmailDomain}) as email-verified in '{target.Database}'.");
+    }
+    catch (Exception exception)
+    {
+        Console.Error.WriteLine($"Verifying seed users failed: {exception}");
+        return 1;
+    }
+
+    if (!options.BackfillNotifications) return 0;
+}
+
 if (options.BackfillNotifications)
 {
     Console.WriteLine($"Backfilling notification recipients from database '{target.Database}' on {target.Host}:{target.Port}.");

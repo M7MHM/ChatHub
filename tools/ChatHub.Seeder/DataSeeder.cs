@@ -74,6 +74,12 @@ public sealed class DataSeeder(ApplicationDbContext db, SeedOptions options, Tex
     public Task<int> CountSeedUsersAsync(CancellationToken cancellationToken = default) =>
         db.Database.SqlQueryRaw<int>($"""SELECT COUNT(*)::int AS "Value" FROM ({SeedUsers}) AS seed""").SingleAsync(cancellationToken);
 
+    public Task<int> VerifySeededUsersAsync(CancellationToken cancellationToken = default) =>
+        db.Database.ExecuteSqlRawAsync($"""
+            UPDATE "UserProfiles" SET "EmailVerifiedAtUtc" = "CreatedAtUtc"
+            WHERE "EmailVerifiedAtUtc" IS NULL AND NOT "IsDeleted" AND "Email" LIKE '%@{SeedOptions.EmailDomain}'
+            """, cancellationToken);
+
     public async Task<ResetResult> ResetAsync(CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();

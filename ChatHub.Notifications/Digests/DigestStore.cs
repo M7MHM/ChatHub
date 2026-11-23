@@ -35,6 +35,38 @@ public static class DigestStore
             """, cancellationToken);
     }
 
+    public static async Task RecomputeDigestsAsync(this NotificationsDbContext db, Guid conversationId, Guid[] userIds,
+        NotificationSettings settings, CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlAsync($"""
+            DELETE FROM "PendingDigests" p
+            WHERE p."ConversationId" = {conversationId} AND p."UserId" = ANY({userIds})
+              AND NOT EXISTS (SELECT 1 FROM "DigestMessages" m WHERE m."UserId" = p."UserId" AND m."ConversationId" = {conversationId})
+            """, cancellationToken);
+
+        await db.Database.ExecuteSqlAsync($"""
+            UPDATE "PendingDigests" AS p SET
+                "MessageCount" = r.n,
+                "FirstUnreadAtUtc" = r.first,
+                "LastMessageAtUtc" = r.last,
+                "LastSenderName" = COALESCE(l."SenderName", p."LastSenderName"),
+                "LastPreview" = l."Preview",
+                "DueAtUtc" = GREATEST(p."DueAtUtc", r.first + {settings.DigestDelay})
+            FROM (SELECT m."UserId", count(*)::int AS n, min(m."SentAtUtc") AS first, max(m."SentAtUtc") AS last
+                  FROM "DigestMessages" m
+                  WHERE m."ConversationId" = {conversationId} AND m."UserId" = ANY({userIds})
+                  GROUP BY m."UserId") AS r
+            CROSS JOIN LATERAL (
+                  SELECT s."SenderName", s."Preview"
+                  FROM "DigestMessages" m2
+                  LEFT JOIN "MessageSnapshots" s ON s."ChatMessageId" = m2."ChatMessageId"
+                  WHERE m2."UserId" = r."UserId" AND m2."ConversationId" = {conversationId}
+                  ORDER BY m2."SentAtUtc" DESC, m2."ChatMessageId" DESC
+                  LIMIT 1) AS l
+            WHERE p."UserId" = r."UserId" AND p."ConversationId" = {conversationId}
+            """, cancellationToken);
+    }
+
     public static async Task DeleteDigestAsync(this NotificationsDbContext db, Guid userId, Guid conversationId,
         CancellationToken cancellationToken)
     {

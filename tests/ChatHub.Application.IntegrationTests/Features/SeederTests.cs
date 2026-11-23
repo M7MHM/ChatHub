@@ -224,6 +224,27 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
     }
 
     [Fact]
+    public async Task VerifySeeded_MarksOnlyUnverifiedSeedUsersAsVerified()
+    {
+        await SeedAsync();
+        await UseDbAsync(db => db.UserProfiles.ExecuteUpdateAsync(s => s.SetProperty(u => u.EmailVerifiedAtUtc, (DateTime?)null)));
+        var outsider = await CreateUserAsync("Olga");
+        var phoneOnly = await CreateUserAsync("Pat", phone: "01001234567");
+
+        int verified;
+        await using (var db = ApplicationDbContextFactory.Create(Database.ConnectionString))
+            verified = await new DataSeeder(db, Small with { VerifySeeded = true }, TextWriter.Null).VerifySeededUsersAsync();
+
+        verified.ShouldBe(Small.Users);
+        var users = await QueryDbAsync(db => db.UserProfiles.AsNoTracking().ToListAsync());
+        users.Where(u => u.Id != outsider && u.Id != phoneOnly).ShouldAllBe(u => u.EmailVerifiedAtUtc == u.CreatedAtUtc);
+        users.Single(u => u.Id == outsider).IsEmailVerified.ShouldBeFalse();
+        users.Single(u => u.Id == phoneOnly).IsEmailVerified.ShouldBeFalse();
+        SeedOptions.Parse(["--confirm", "--verify-seeded", "--backfill-notifications"]).VerifySeeded.ShouldBeTrue();
+        Should.Throw<ArgumentException>(() => SeedOptions.Parse(["--confirm", "--verify-seeded", "--reset"]));
+    }
+
+    [Fact]
     public void BackfillNotifications_CannotBeCombinedWithReset()
     {
         SeedOptions.Parse(["--confirm", "--backfill-notifications"]).BackfillNotifications.ShouldBeTrue();

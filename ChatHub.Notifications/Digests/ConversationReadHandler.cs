@@ -7,16 +7,18 @@ namespace ChatHub.Notifications.Digests;
 
 public sealed class ConversationReadHandler(NotificationsDbContext db, IOptions<NotificationSettings> options)
 {
-    public async Task HandleAsync(ConversationRead read, CancellationToken cancellationToken)
+    public Task HandleAsync(ConversationRead read, CancellationToken cancellationToken) =>
+        MarkReadUpToAsync(read.UserId, read.ConversationId, read.ReadUpToUtc, cancellationToken);
+
+    public async Task MarkReadUpToAsync(Guid userId, Guid conversationId, DateTime upToUtc, CancellationToken cancellationToken)
     {
         await db.Database.ExecuteSqlAsync($"""
             INSERT INTO "ConversationReads" ("UserId", "ConversationId", "ReadUpToUtc")
-            VALUES ({read.UserId}, {read.ConversationId}, {read.ReadUpToUtc})
+            VALUES ({userId}, {conversationId}, {upToUtc})
             ON CONFLICT ("UserId", "ConversationId") DO UPDATE
                 SET "ReadUpToUtc" = GREATEST("ConversationReads"."ReadUpToUtc", EXCLUDED."ReadUpToUtc")
             """, cancellationToken);
 
-        await db.RemoveMessagesUpToAsync(read.UserId, read.ConversationId, read.ReadUpToUtc, options.Value,
-            resetDelivery: false, cancellationToken);
+        await db.RemoveMessagesUpToAsync(userId, conversationId, upToUtc, options.Value, resetDelivery: false, cancellationToken);
     }
 }

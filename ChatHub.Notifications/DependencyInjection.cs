@@ -4,9 +4,11 @@ using ChatHub.Notifications.Digests;
 using ChatHub.Notifications.Health;
 using ChatHub.Notifications.Messaging;
 using ChatHub.Notifications.Persistence;
+using ChatHub.Notifications.Sending;
 using ChatHub.Notifications.Transactional;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using MimeKit;
 
@@ -32,8 +34,14 @@ public static class DependencyInjection
                 "Notifications PollIntervalMilliseconds must be greater than zero and BatchSize between 1 and 500.")
             .Validate(s => s.MaxMessageAgeHours > 0 && s.InboxRetention > s.MaxMessageAge,
                 "Notifications InboxRetentionDays must cover MaxMessageAgeHours.")
-            .Validate(s => s.VerificationRecheckSeconds > 0,
-                "Notifications VerificationRecheckSeconds must be greater than zero.")
+            .Validate(s => s.HoldRecheckSeconds > 0 && s.SendBacklogAlertMinutes > 0,
+                "Notifications HoldRecheckSeconds and SendBacklogAlertMinutes must be greater than zero.")
+            .Validate(s => s.MaxEmailsPerMinute > 0 && s.MaxDigestsPerMinute is > 0 && s.MaxDigestsPerMinute <= s.MaxEmailsPerMinute,
+                "Notifications MaxEmailsPerMinute must be greater than zero and MaxDigestsPerMinute between 1 and MaxEmailsPerMinute.")
+            .Validate(s => s.MaxEmailsPerDay > 0 && s.MaxDigestsPerDay > 0 && s.MaxDigestsPerDay <= s.MaxEmailsPerDay,
+                "Notifications MaxEmailsPerDay must be greater than zero and MaxDigestsPerDay between 1 and MaxEmailsPerDay.")
+            .Validate(s => s.MaxEmailsPerRecipientPerHour > 0,
+                "Notifications MaxEmailsPerRecipientPerHour must be greater than zero.")
             .Validate<IOptions<SmtpSettings>>((s, smtp) => s.Lease >= 2 * smtp.Value.Timeout,
                 "Notifications LeaseSeconds must be at least twice Smtp TimeoutSeconds.")
             .ValidateOnStart();
@@ -68,6 +76,10 @@ public static class DependencyInjection
         services.AddScoped<ConversationReadHandler>();
         services.AddScoped<UserEventsHandler>();
         services.AddScoped<EmailVerificationHandler>();
+        services.AddScoped<ConversationEventsHandler>();
+        services.AddScoped<PresenceHandler>();
+        services.AddSingleton<SendQuota>();
+        services.AddSingleton<EmailSuppression>();
         services.AddScoped<IIntegrationEventProcessor, IntegrationEventProcessor>();
         services.AddSingleton<INotificationChannel, EmailChannel>();
 
@@ -80,7 +92,8 @@ public static class DependencyInjection
 
         services.AddHealthChecks()
             .AddDbContextCheck<NotificationsDbContext>("database", tags: [ReadyTag])
-            .AddCheck<RabbitMqConsumerHealthCheck>("rabbitmq", tags: [ReadyTag]);
+            .AddCheck<RabbitMqConsumerHealthCheck>("rabbitmq", tags: [ReadyTag])
+            .AddCheck<SendingHealthCheck>("sending", HealthStatus.Degraded, [ReadyTag]);
 
         return services;
     }

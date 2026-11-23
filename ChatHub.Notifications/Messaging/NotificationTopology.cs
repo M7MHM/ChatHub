@@ -17,7 +17,13 @@ public static class NotificationTopology
         MessageRoutes.UserRegistered,
         MessageRoutes.UserProfileUpdated,
         MessageRoutes.UserDeleted,
-        MessageRoutes.EmailVerificationRequested
+        MessageRoutes.EmailVerificationRequested,
+        MessageRoutes.UserStatusChanged,
+        MessageRoutes.MessageEdited,
+        MessageRoutes.MessageDeleted,
+        MessageRoutes.MemberLeft,
+        MessageRoutes.MemberKicked,
+        MessageRoutes.ConversationMuteChanged
     ];
 
     public static async Task DeclareAsync(IChannel channel, CancellationToken cancellationToken)

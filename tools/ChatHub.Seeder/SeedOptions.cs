@@ -11,6 +11,7 @@ public sealed record SeedOptions
     public const string Usage = """
         Usage: ChatHub.Seeder --confirm [options]
                ChatHub.Seeder --confirm --backfill-notifications [--connection <string>] [--batch-size <n>]
+               ChatHub.Seeder --confirm --verify-seeded [--backfill-notifications]
                               [--public-api-base-url <url>] [--rotate-unsubscribe-links]
 
           --confirm              Required. Without it the seeder refuses to touch the database.
@@ -20,6 +21,9 @@ public sealed record SeedOptions
                                  deleted, so the notification service learns about users created before it existed.
                                  It carries the email-verified flag and the email preference, and issues an unsubscribe
                                  link to every user that has none yet.
+          --verify-seeded        Seed nothing; mark seed users (@chathub.test) whose email is not verified yet as verified
+                                 (verified at their creation time). Other users are never touched. Add
+                                 --backfill-notifications to tell the notification service in the same run.
           --public-api-base-url <url>
                                  Base of the unsubscribe links (default: App__PublicApiBaseUrl, else http://localhost:8080).
           --rotate-unsubscribe-links
@@ -42,6 +46,7 @@ public sealed record SeedOptions
     public bool Reset { get; init; }
     public bool BackfillNotifications { get; init; }
     public bool RotateUnsubscribeLinks { get; init; }
+    public bool VerifySeeded { get; init; }
     public string? PublicApiBaseUrl { get; init; }
     public bool Help { get; init; }
     public string? ConnectionString { get; init; }
@@ -75,6 +80,7 @@ public sealed record SeedOptions
                 "--reset" => options with { Reset = true },
                 "--backfill-notifications" => options with { BackfillNotifications = true },
                 "--rotate-unsubscribe-links" => options with { RotateUnsubscribeLinks = true },
+                "--verify-seeded" => options with { VerifySeeded = true },
                 "--public-api-base-url" => options with { PublicApiBaseUrl = Value() },
                 "--help" or "-h" => options with { Help = true },
                 "--connection" => options with { ConnectionString = Value() },
@@ -100,6 +106,7 @@ public sealed record SeedOptions
     {
         if (BackfillNotifications && Reset) return "--backfill-notifications cannot be combined with --reset.";
         if (RotateUnsubscribeLinks && !BackfillNotifications) return "--rotate-unsubscribe-links needs --backfill-notifications.";
+        if (VerifySeeded && Reset) return "--verify-seeded cannot be combined with --reset.";
         if (PublicApiBaseUrl is not null && !AppUrlSettings.IsValidBaseUrl(PublicApiBaseUrl))
             return "--public-api-base-url must be an absolute http(s) URL.";
         if (Users is < 2 or > 9999) return "--users must be between 2 and 9999.";
