@@ -41,6 +41,7 @@ public sealed class HubClient : IAsyncDisposable
 
         Connection.Closed += _ =>
         {
+            ClosedAtUtc ??= DateTime.UtcNow;
             _closed.TrySetResult();
             return Task.CompletedTask;
         };
@@ -50,26 +51,31 @@ public sealed class HubClient : IAsyncDisposable
 
     public HubConnectionState State => Connection.State;
 
+    public DateTime? ClosedAtUtc { get; private set; }
+
     public IReadOnlyList<HubEvent> Events => [.. _events];
 
     public Task StartAsync() => Connection.StartAsync();
 
-    public async Task<bool> WaitForCloseAsync(TimeSpan timeout) =>
-        await Task.WhenAny(_closed.Task, Task.Delay(timeout)) == _closed.Task;
+    public async Task<bool> WaitForCloseAsync(TimeSpan? timeout = null) =>
+        await Task.WhenAny(_closed.Task, Task.Delay(timeout ?? Eventually.Timeout)) == _closed.Task;
 
     public async Task<JsonElement> WaitForAsync(string name, Func<JsonElement, bool> match, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
-        while (DateTime.UtcNow < deadline)
-        {
-            foreach (var hubEvent in _events)
-                if (hubEvent.Name == name && match(hubEvent.Payload))
-                    return hubEvent.Payload;
-            await Task.Delay(20);
-        }
+        JsonElement? found = null;
+        if (await Eventually.TryAsync(() => Task.FromResult((found = Find(name, match)) is not null), timeout))
+            return found!.Value;
 
         throw new ShouldAssertException(
             $"No matching {name} event arrived. Received: [{string.Join(", ", _events.Select(e => e.Name))}]");
+    }
+
+    private JsonElement? Find(string name, Func<JsonElement, bool> match)
+    {
+        foreach (var hubEvent in _events)
+            if (hubEvent.Name == name && match(hubEvent.Payload))
+                return hubEvent.Payload;
+        return null;
     }
 
     public ValueTask DisposeAsync() => Connection.DisposeAsync();

@@ -73,25 +73,12 @@ public sealed class MessagingTests(RabbitMqApiFixture fixture) : ApiTestBase(fix
 
     private async Task<ApiResponse> WaitForReadinessAsync(string status)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        var response = await Api.GetAsync("/health/ready");
-        while (response.Text != status && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(50);
-            response = await Api.GetAsync("/health/ready");
-        }
-
-        response.Text.ShouldBe(status);
+        ApiResponse? response = null;
+        await Eventually.TryAsync(async () => (response = await Api.GetAsync("/health/ready")).Text == status);
+        response!.Text.ShouldBe(status);
         return response;
     }
 
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!await condition())
-        {
-            if (DateTime.UtcNow >= deadline) throw new ShouldAssertException("The condition was not met within 10 s.");
-            await Task.Delay(50);
-        }
-    }
+    private static Task WaitUntilAsync(Func<Task<bool>> condition) =>
+        Eventually.UntilAsync(condition, "The outbox row was not marked as published.");
 }

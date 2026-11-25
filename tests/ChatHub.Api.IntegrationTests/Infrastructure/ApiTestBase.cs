@@ -151,27 +151,19 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
         return hub;
     }
 
-    private async Task WaitUntilConnectedOnServerAsync(Guid userId, IReadOnlySet<string> existingConnections)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline &&
-               !((await Tracker.GetConnectionIdsAsync(userId)).Any(id => !existingConnections.Contains(id)) &&
-                 await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => u.Id == userId && u.IsOnline))))
-            await Task.Delay(20);
-    }
+    private Task WaitUntilConnectedOnServerAsync(Guid userId, IReadOnlySet<string> existingConnections) =>
+        Eventually.TryAsync(async () =>
+            (await Tracker.GetConnectionIdsAsync(userId)).Any(id => !existingConnections.Contains(id)) &&
+            await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => u.Id == userId && u.IsOnline)));
 
     private async Task WaitUntilHubUsersAreOfflineAsync()
     {
         if (_hubUsers.Count == 0) return;
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline && await AnyHubUserTrackedAsync())
-            await Task.Delay(20);
-
         var users = _hubUsers.ToList();
-        while (DateTime.UtcNow < deadline &&
-               await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => users.Contains(u.Id) && u.IsOnline)))
-            await Task.Delay(20);
+        await Eventually.TryAsync(async () =>
+            !await AnyHubUserTrackedAsync() &&
+            !await QueryDbAsync(db => db.UserProfiles.AnyAsync(u => users.Contains(u.Id) && u.IsOnline)));
     }
 
     private async Task<bool> AnyHubUserTrackedAsync()

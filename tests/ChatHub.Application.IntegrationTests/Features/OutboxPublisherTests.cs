@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using ChatHub.Application.IntegrationTests.Infrastructure;
 using ChatHub.Contracts;
 using ChatHub.Contracts.Events;
@@ -141,7 +143,8 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
     public async Task PublishPending_RabbitMqUnreachable_ThrowsWithoutClaimingAnyRow()
     {
         await InsertAsync(3);
-        await using var unreachable = NewRabbitMqPublisher(FreePort());
+        using var closedPort = ReserveClosedPort();
+        await using var unreachable = NewRabbitMqPublisher(((IPEndPoint)closedPort.LocalEndPoint!).Port);
         var service = ActivatorUtilities.CreateInstance<OutboxPublisherService>(Services, unreachable);
 
         await Should.ThrowAsync<Exception>(() => service.PublishPendingAsync(CancellationToken.None));
@@ -172,7 +175,7 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
 
             await rabbit.Container.StartAsync();
             await WaitUntilAsync(async () => (await SingleRowAsync()).ProcessedAtUtc is not null,
-                "the pending row was not published after RabbitMQ came back", TimeSpan.FromSeconds(30));
+                "the pending row was not published after RabbitMQ came back", TimeSpan.FromSeconds(60));
 
             await queue.ReconnectAsync();
             TestQueue.Read<MessageSent>(await queue.GetAsync()).ChatMessageId.ShouldBe(sent.Id);
@@ -242,20 +245,13 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
         return total;
     }
 
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition, string failure, TimeSpan? timeout = null)
-    {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(10));
-        while (!await condition())
-        {
-            if (DateTime.UtcNow >= deadline) throw new ShouldAssertException(failure);
-            await Task.Delay(50);
-        }
-    }
+    private static Task WaitUntilAsync(Func<Task<bool>> condition, string failure, TimeSpan? timeout = null) =>
+        Eventually.UntilAsync(condition, failure, timeout);
 
-    private static int FreePort()
+    private static Socket ReserveClosedPort()
     {
-        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        return socket;
     }
 }

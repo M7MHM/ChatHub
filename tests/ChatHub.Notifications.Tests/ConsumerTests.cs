@@ -145,19 +145,13 @@ public sealed class ConsumerTests(NotificationsFixture fixture) : NotificationsT
     private async Task<BasicGetResult> GetAsync(string queue)
     {
         BasicGetResult? result = null;
-        await WaitUntilAsync(async () => (result = await _channel!.BasicGetAsync(queue, autoAck: true)) is not null);
+        await Eventually.UntilAsync(async () => (result = await _channel!.BasicGetAsync(queue, autoAck: true)) is not null,
+            $"No message arrived in {queue}.");
         return result!;
     }
 
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (!await condition())
-        {
-            if (DateTime.UtcNow >= deadline) throw new ShouldAssertException("The condition was not met within 15 s.");
-            await Task.Delay(50);
-        }
-    }
+    private static Task WaitUntilAsync(Func<Task<bool>> condition) =>
+        Eventually.UntilAsync(condition, "The consumer did not reach the expected state.");
 }
 
 public sealed class FlakyProcessor(IIntegrationEventProcessor inner, FlakyProcessor.Failures failures) : IIntegrationEventProcessor

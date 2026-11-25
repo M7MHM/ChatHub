@@ -1,7 +1,11 @@
 using ChatHub.Api.IntegrationTests.Infrastructure;
 using ChatHub.Infrastructure.Caching;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
+using ChatHubEndpoint = ChatHub.Infrastructure.RealTime.Hubs.ChatHub;
 
 namespace ChatHub.Api.IntegrationTests;
 
@@ -62,6 +66,21 @@ public sealed class RedisCacheTests(RedisApiFixture fixture) : ApiTestBase(fixtu
             await cache.GetOrCreateAsync("probe", _ => ValueTask.FromResult(++factoryCalls));
         factoryCalls.ShouldBe(2);
         (await fixture.RedisKeysAsync("chathub:probe")).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CacheDisposed_TheConnectionOfTheTrackerAndTheBackplaneStaysOpen()
+    {
+        await using var host = fixture.CreateFactory();
+        var cache = host.Services.GetRequiredService<IDistributedCache>();
+        var key = $"ownership-probe-{Guid.NewGuid():N}";
+        await cache.SetStringAsync(key, "1");
+        (await fixture.RedisKeysAsync($"chathub:{key}")).ShouldHaveSingleItem();
+
+        ((IDisposable)cache).Dispose();
+
+        await host.Services.GetRequiredService<IConnectionMultiplexer>().GetDatabase().PingAsync();
+        await host.Services.GetRequiredService<IHubContext<ChatHubEndpoint>>().Clients.All.SendAsync("Ping");
     }
 }
 

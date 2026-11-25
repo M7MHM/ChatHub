@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pick the .NET SDK version
+        id: sdk
+        shell: bash
+        run: |
+          if [ -f global.json ]; then
+            echo "global-json=global.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=10.0.x" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: ${{ steps.sdk.outputs.global-json }}
+          dotnet-version: ${{ steps.sdk.outputs.version }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Packages.props', 'global.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Pull the Testcontainers images
+        shell: bash
+        run: |
+          printf '%s\n' postgres:17 redis:8-alpine rabbitmq:4-management axllent/mailpit:v1.31 \
+            | xargs -P 4 -n 1 docker pull --quiet
+
+      - name: Restore
+        run: dotnet restore ChatHub.slnx
+
+      - name: Build
+        run: dotnet build ChatHub.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test ChatHub.slnx
+          --configuration Release
+          --no-build
+          --results-directory TestResults
+          --logger "trx;LogFilePrefix=chathub"
+          --logger "console;verbosity=detailed"
+          --blame-hang-timeout 10m
+          --blame-hang-dump-type none
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/trx_summary.py TestResults
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+          if-no-files-found: warn
+          retention-days: 14
+
+  docker:
+    name: docker (${{ matrix.target }})
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [api, migrator, notifications, notifications-migrator, seeder]
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/chathub-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ env.PUSH == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable=${{ env.PUSH == 'true' }}
+          labels: |
+            org.opencontainers.image.title=chathub-${{ matrix.target }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build (and push on main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,scope=${{ matrix.target }},mode=max

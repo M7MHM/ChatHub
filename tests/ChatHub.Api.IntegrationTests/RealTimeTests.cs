@@ -4,13 +4,12 @@ using ChatHub.Application.Common.RealTime;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 namespace ChatHub.Api.IntegrationTests;
 
 public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
 {
-    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(5);
-
     [Fact]
     public async Task Hub_ConnectWithAccessTokenQuery_Connects()
     {
@@ -248,7 +247,7 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
         var changed = await Api.PostAsync("/api/auth/change-password", new { currentPassword = Password, newPassword = "newpass123" }, dora.Token);
 
         changed.Status.ShouldBe(200);
-        (await hub.WaitForCloseAsync(CloseTimeout)).ShouldBeTrue();
+        (await hub.WaitForCloseAsync()).ShouldBeTrue();
         hub.State.ShouldBe(HubConnectionState.Disconnected);
     }
 
@@ -258,7 +257,7 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
         var dora = await RegisterAsync("Dora");
         var hub = await ConnectHubAsync(dora);
         var changed = await Api.PostAsync("/api/auth/change-password", new { currentPassword = Password, newPassword = "newpass123" }, dora.Token);
-        (await hub.WaitForCloseAsync(CloseTimeout)).ShouldBeTrue();
+        (await hub.WaitForCloseAsync()).ShouldBeTrue();
 
         var reconnected = await ConnectHubAsync(dora.Id, changed.Json.S("accessToken")!);
 
@@ -274,7 +273,7 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
         var deleted = await Api.DeleteAsync("/api/users/me", dora.Token);
 
         deleted.Status.ShouldBe(204);
-        (await hub.WaitForCloseAsync(CloseTimeout)).ShouldBeTrue();
+        (await hub.WaitForCloseAsync()).ShouldBeTrue();
         hub.State.ShouldBe(HubConnectionState.Disconnected);
     }
 
@@ -283,15 +282,17 @@ public sealed class RealTimeTests(ApiFixture fixture) : ApiTestBase(fixture)
     {
         var dora = await RegisterAsync("Dora");
         var bob = await RegisterAsync("Bob");
+        var bobHub = await ConnectHubAsync(bob);
         var stamp = await QueryDbAsync(db => db.UserProfiles.Where(u => u.Id == dora.Id).Select(u => u.SecurityStamp).FirstAsync());
         var shortLived = ForgeToken(new Dictionary<string, object> { ["sub"] = dora.Id.ToString(), ["sstamp"] = stamp.ToString() },
             TimeSpan.FromSeconds(3));
-        var doraHub = await ConnectHubAsync(dora.Id, shortLived);
-        var bobHub = await ConnectHubAsync(bob);
-        doraHub.State.ShouldBe(HubConnectionState.Connected);
+        var expiresAtUtc = new JsonWebToken(shortLived).ValidTo;
+        var doraHub = CreateHub(shortLived);
 
-        (await doraHub.WaitForCloseAsync(TimeSpan.FromSeconds(15))).ShouldBeTrue();
+        await doraHub.StartAsync();
+        (await doraHub.WaitForCloseAsync()).ShouldBeTrue();
 
+        doraHub.ClosedAtUtc.ShouldNotBeNull().ShouldBeGreaterThanOrEqualTo(expiresAtUtc);
         doraHub.State.ShouldBe(HubConnectionState.Disconnected);
         bobHub.State.ShouldBe(HubConnectionState.Connected);
     }
