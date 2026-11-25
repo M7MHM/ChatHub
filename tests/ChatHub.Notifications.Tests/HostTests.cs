@@ -17,13 +17,9 @@ public sealed class HostTests(NotificationsFixture fixture) : NotificationsTestB
         using var client = factory.CreateClient();
 
         (await client.GetStringAsync("/health/live")).ShouldBe("Healthy");
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        var ready = await client.GetAsync("/health/ready");
-        while (StatusOf(await ready.Content.ReadAsStringAsync()) != "Healthy" && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(100);
-            ready = await client.GetAsync("/health/ready");
-        }
+        HttpResponseMessage ready = null!;
+        await Eventually.TryAsync(async () =>
+            StatusOf(await (ready = await client.GetAsync("/health/ready")).Content.ReadAsStringAsync()) == "Healthy");
 
         ((int)ready.StatusCode).ShouldBe(200);
         using var report = JsonDocument.Parse(await ready.Content.ReadAsStringAsync());

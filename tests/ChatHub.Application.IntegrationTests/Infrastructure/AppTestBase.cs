@@ -139,7 +139,7 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
         {
             Clock.OnCall(call =>
             {
-                if (call == 1 && !barrier.SignalAndWait(TimeSpan.FromSeconds(15)))
+                if (call == 1 && !barrier.SignalAndWait(Eventually.Timeout))
                     throw new TimeoutException("The other racer never reached the barrier.");
             });
             return await action();

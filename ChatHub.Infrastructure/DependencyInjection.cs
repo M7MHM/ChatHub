@@ -13,10 +13,8 @@ using ChatHub.Infrastructure.RealTime;
 using ChatHub.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.AspNetCore.SignalR.StackExchangeRedis;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
-using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -109,7 +107,7 @@ public static class DependencyInjection
     private static void AddCaching(this IServiceCollection services, IConfiguration configuration, ConfigurationOptions? redis)
     {
         if (redis is not null)
-            services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis));
+            services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redis.Clone()));
 
         if (!configuration.GetValue(CachingEnabledSetting, true))
         {
@@ -121,10 +119,11 @@ public static class DependencyInjection
 
         if (redis is null) return;
 
-        services.AddStackExchangeRedisCache(options => options.InstanceName = RedisInstanceName);
-        services.AddOptions<RedisCacheOptions>()
-            .Configure<IServiceProvider>((options, provider) => options.ConnectionMultiplexerFactory =
-                () => Task.FromResult(provider.GetRequiredService<IConnectionMultiplexer>()));
+        services.AddStackExchangeRedisCache(options =>
+        {
+            options.InstanceName = RedisInstanceName;
+            options.ConfigurationOptions = redis.Clone();
+        });
     }
 
     private static ConfigurationOptions? RedisConfiguration(IConfiguration configuration)
@@ -247,10 +246,7 @@ public static class DependencyInjection
             return;
         }
 
-        signalR.AddStackExchangeRedis();
-        services.AddOptions<RedisOptions>()
-            .Configure<IConnectionMultiplexer>((options, multiplexer) =>
-                options.ConnectionFactory = _ => Task.FromResult(multiplexer));
+        signalR.AddStackExchangeRedis(options => options.Configuration = redis.Clone());
 
         services.AddOptions<RealTimeSettings>()
             .Bind(configuration.GetSection(RealTimeSettings.SectionName))

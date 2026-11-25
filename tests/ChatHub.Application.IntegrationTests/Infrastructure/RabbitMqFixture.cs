@@ -12,20 +12,11 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     public const string User = "chathub";
     public const string Password = "chathub-tests";
     private const int AmqpPort = 5672;
+    private const int StartAttempts = 3;
 
-    public RabbitMqFixture()
-    {
-        Port = FreeTcpPort();
-        Container = new RabbitMqBuilder("rabbitmq:4-management")
-            .WithUsername(User)
-            .WithPassword(Password)
-            .WithPortBinding(Port, AmqpPort)
-            .Build();
-    }
+    public int Port { get; private set; }
 
-    public int Port { get; }
-
-    public RabbitMqContainer Container { get; }
+    public RabbitMqContainer Container { get; private set; } = null!;
 
     public IReadOnlyDictionary<string, string?> MessagingSettings(int batchSize = 100) => new Dictionary<string, string?>
     {
@@ -40,7 +31,27 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         ["Messaging:MaxRetryDelaySeconds"] = "2"
     };
 
-    public Task InitializeAsync() => Container.StartAsync();
+    public async Task InitializeAsync()
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            Port = FreeTcpPort();
+            Container = new RabbitMqBuilder("rabbitmq:4-management")
+                .WithUsername(User)
+                .WithPassword(Password)
+                .WithPortBinding(Port, AmqpPort)
+                .Build();
+            try
+            {
+                await Container.StartAsync();
+                return;
+            }
+            catch (Exception exception) when (attempt < StartAttempts && IsPortConflict(exception))
+            {
+                await Container.DisposeAsync();
+            }
+        }
+    }
 
     public Task DisposeAsync() => Container.DisposeAsync().AsTask();
 
@@ -53,6 +64,14 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static bool IsPortConflict(Exception exception)
+    {
+        var text = exception.ToString();
+        return text.Contains("port is already allocated", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("address already in use", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("ports are not available", StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -91,17 +110,13 @@ public sealed class TestQueue : IAsyncDisposable
 
     public async Task<BasicGetResult?> TryGetAsync(TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            var result = await _channel.BasicGetAsync(Name, autoAck: true);
-            if (result is not null || DateTime.UtcNow >= deadline) return result;
-            await Task.Delay(25);
-        }
+        BasicGetResult? result = null;
+        await Eventually.TryAsync(async () => (result = await _channel.BasicGetAsync(Name, autoAck: true)) is not null, timeout);
+        return result;
     }
 
     public async Task<BasicGetResult> GetAsync() =>
-        await TryGetAsync(TimeSpan.FromSeconds(10)) ?? throw new ShouldAssertException($"No message arrived in {Name}.");
+        await TryGetAsync(Eventually.Timeout) ?? throw new ShouldAssertException($"No message arrived in {Name}.");
 
     public async Task<List<BasicGetResult>> TakeAllAsync()
     {

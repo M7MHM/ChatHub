@@ -1,0 +1,62 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to deploy (the short commit SHA CI pushed, e.g. 3f9c2ab)
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      CONFIGURED: ${{ secrets.DEPLOY_SSH_HOST != '' && secrets.DEPLOY_SSH_USER != '' && secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_SSH_KNOWN_HOSTS != '' }}
+    steps:
+      - name: Not configured
+        if: ${{ env.CONFIGURED != 'true' }}
+        run: |
+          echo "::notice title=Deploy skipped::Set the DEPLOY_SSH_HOST, DEPLOY_SSH_USER, DEPLOY_SSH_KEY and DEPLOY_SSH_KNOWN_HOSTS secrets of the production environment to enable deploys (docs/DEPLOYMENT.md#continuous-deployment)."
+
+      - name: Check the tag
+        if: ${{ env.CONFIGURED == 'true' }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! $TAG =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+            echo "::error::'$TAG' is not a valid image tag"
+            exit 1
+          fi
+
+      - name: Deploy over SSH
+        if: ${{ env.CONFIGURED == 'true' }}
+        env:
+          TAG: ${{ inputs.tag }}
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          SSH_PORT: ${{ vars.DEPLOY_SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/chathub' }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "cd '$DEPLOY_PATH' && bash deploy/deploy.sh '$TAG'"
+
+      - name: Remove the key
+        if: ${{ always() && env.CONFIGURED == 'true' }}
+        run: rm -f ~/.ssh/deploy_key

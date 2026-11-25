@@ -19,7 +19,6 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
 {
     private const string InstanceIdHeader = "X-Instance-Id";
     private static readonly TimeSpan QuietPeriod = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan SweepTimeout = TimeSpan.FromSeconds(15);
 
     private readonly ApiClient _host2Api = NewClient(fixture.Second);
 
@@ -179,7 +178,7 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
             : await Api.PostAsync("/api/auth/change-password", new { currentPassword = Password, newPassword = "newpass123" }, dora.Token);
 
         response.Status.ShouldBeOneOf(200, 204);
-        (await hub.WaitForCloseAsync(TimeSpan.FromSeconds(5))).ShouldBeTrue();
+        (await hub.WaitForCloseAsync()).ShouldBeTrue();
         hub.State.ShouldBe(HubConnectionState.Disconnected);
     }
 
@@ -199,7 +198,7 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
         await fixture.Services.GetRequiredService<PresenceSynchronizer>().SyncAsync(alice.Id, CancellationToken.None);
         await bobHub.WaitForAsync(ChatEvents.PresenceChanged, p => p.G("userId") == alice.Id && p.B("isOnline"));
 
-        await bobHub.WaitForAsync(ChatEvents.PresenceChanged, p => p.G("userId") == alice.Id && !p.B("isOnline"), SweepTimeout);
+        await bobHub.WaitForAsync(ChatEvents.PresenceChanged, p => p.G("userId") == alice.Id && !p.B("isOnline"));
 
         (await IsOnlineInDatabaseAsync(alice.Id)).ShouldBeFalse();
         (await Redis.KeyExistsAsync(RedisUserConnectionTracker.UserKey(alice.Id))).ShouldBeFalse();
@@ -220,7 +219,7 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
         await host3.DisposeAsync();
 
         await bobHub.WaitForAsync(ChatEvents.PresenceChanged, p => p.G("userId") == alice.Id && !p.B("isOnline"));
-        (await aliceHub.WaitForCloseAsync(TimeSpan.FromSeconds(5))).ShouldBeTrue();
+        (await aliceHub.WaitForCloseAsync()).ShouldBeTrue();
         (await Redis.KeyExistsAsync(RedisUserConnectionTracker.UserKey(alice.Id))).ShouldBeFalse();
         (await Redis.KeyExistsAsync(RedisUserConnectionTracker.HeartbeatKey(host3Id))).ShouldBeFalse();
         (await Redis.SetContainsAsync(RedisUserConnectionTracker.InstancesKey, host3Id)).ShouldBeFalse();
@@ -263,15 +262,8 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
     private static bool IsPresence(HubEvent hubEvent, Guid userId, bool isOnline) =>
         hubEvent.Name == ChatEvents.PresenceChanged && hubEvent.Payload.G("userId") == userId && hubEvent.Payload.B("isOnline") == isOnline;
 
-    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (!await condition())
-        {
-            if (DateTime.UtcNow > deadline) throw new ShouldAssertException("The condition was not met within 10 seconds.");
-            await Task.Delay(20);
-        }
-    }
+    private static Task WaitUntilAsync(Func<Task<bool>> condition) =>
+        Eventually.UntilAsync(condition, "The connections in Redis and the presence in the database did not reach the expected state.");
 
     private sealed class StaleConnection(Guid userId) : HubCallerContext
     {

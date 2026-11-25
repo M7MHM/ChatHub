@@ -70,8 +70,14 @@ public sealed class NotificationsFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        await _postgres.DisposeAsync();
-        await Rabbit.DisposeAsync();
+        try
+        {
+            await _postgres.DisposeAsync();
+        }
+        finally
+        {
+            await Rabbit.DisposeAsync();
+        }
     }
 }
 

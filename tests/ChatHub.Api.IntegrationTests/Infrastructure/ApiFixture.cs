@@ -16,6 +16,7 @@ public class ApiFixture : IAsyncLifetime
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17").Build();
     private Respawner? _respawner;
     private ChatHubApiFactory? _factory;
+    private int _disposed;
 
     public string FilesRoot { get; } = Path.Combine(Path.GetTempPath(), $"chathub-api-tests-{Guid.NewGuid():N}");
     public LogCapture Logs { get; } = new();
@@ -63,10 +64,35 @@ public class ApiFixture : IAsyncLifetime
         await Services.GetRequiredService<HybridCache>().RemoveByTagAsync("*");
     }
 
-    public virtual async Task DisposeAsync()
+    public async Task DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;
+        try
+        {
+            await StopHostsAsync();
+        }
+        finally
+        {
+            try
+            {
+                await DisposeContainersAsync();
+            }
+            finally
+            {
+                DeleteFilesRoot();
+            }
+        }
+    }
+
+    protected virtual async Task StopHostsAsync()
     {
         if (_factory is not null) await _factory.DisposeAsync();
-        await _container.DisposeAsync();
+    }
+
+    protected virtual async Task DisposeContainersAsync() => await _container.DisposeAsync();
+
+    private void DeleteFilesRoot()
+    {
         try
         {
             if (Directory.Exists(FilesRoot)) Directory.Delete(FilesRoot, recursive: true);

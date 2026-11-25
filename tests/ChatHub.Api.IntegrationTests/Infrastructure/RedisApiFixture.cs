@@ -14,10 +14,16 @@ public class RedisApiFixture : ApiFixture
         await base.InitializeAsync();
     }
 
-    public override async Task DisposeAsync()
+    protected override async Task DisposeContainersAsync()
     {
-        await base.DisposeAsync();
-        await Redis.DisposeAsync();
+        try
+        {
+            await base.DisposeContainersAsync();
+        }
+        finally
+        {
+            await Redis.DisposeAsync();
+        }
     }
 
     public async Task<IReadOnlyList<string>> RedisKeysAsync(string pattern)

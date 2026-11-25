@@ -32,10 +32,16 @@ public sealed class MultiInstanceFixture : RedisApiFixture
         await Second.Services.GetRequiredService<HybridCache>().RemoveByTagAsync("*");
     }
 
-    public override async Task DisposeAsync()
+    protected override async Task StopHostsAsync()
     {
-        if (_second is not null) await _second.DisposeAsync();
-        await base.DisposeAsync();
+        try
+        {
+            if (_second is not null) await _second.DisposeAsync();
+        }
+        finally
+        {
+            await base.StopHostsAsync();
+        }
     }
 }
 

@@ -31,10 +31,16 @@ public sealed class RabbitMqApiFixture : ApiFixture
         await base.InitializeAsync();
     }
 
-    public override async Task DisposeAsync()
+    protected override async Task DisposeContainersAsync()
     {
-        await base.DisposeAsync();
-        await Rabbit.DisposeAsync();
+        try
+        {
+            await base.DisposeContainersAsync();
+        }
+        finally
+        {
+            await Rabbit.DisposeAsync();
+        }
     }
 
     public async Task<BoundQueue> BindQueueAsync(params string[] routingKeys)
@@ -59,14 +65,10 @@ public sealed record BoundQueue(IConnection Connection, IChannel Channel, string
 {
     public async Task<BasicGetResult> GetAsync()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (DateTime.UtcNow < deadline)
-        {
-            if (await Channel.BasicGetAsync(Name, autoAck: true) is { } result) return result;
-            await Task.Delay(25);
-        }
-
-        throw new ShouldAssertException($"No message arrived in {Name}.");
+        BasicGetResult? result = null;
+        await Eventually.UntilAsync(async () => (result = await Channel.BasicGetAsync(Name, autoAck: true)) is not null,
+            $"No message arrived in {Name}.");
+        return result!;
     }
 
     public async ValueTask DisposeAsync()

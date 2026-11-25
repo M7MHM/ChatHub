@@ -1,0 +1,88 @@
+{
+	email {$ACME_EMAIL}
+	{$EDGE_LOCAL_CERTS}
+
+	servers {
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+(hardening) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	encode zstd gzip
+}
+
+(access_log) {
+	log {
+		output stdout
+		format filter {
+			request>uri regexp "\?.*$" ""
+			request>headers>Referer delete
+		}
+	}
+}
+
+{$CHATHUB_HOST} {
+	import hardening
+	import access_log
+
+	request_body {
+		max_size 25MB
+	}
+
+	@internal path /health /health/ready
+	respond @internal 404
+
+	@docs {
+		path /scalar /scalar/* /openapi/*
+		expression `"{$CHATHUB_DOCS_PUBLIC:false}" != "true"`
+	}
+	respond @docs 404
+
+	reverse_proxy {
+		import /etc/caddy/upstreams/chathub*.caddy
+
+		lb_policy least_conn
+		lb_try_duration 5s
+		lb_try_interval 250ms
+
+		health_uri /health/live
+		health_interval 10s
+		health_timeout 5s
+		health_fails 3
+
+		fail_duration 10s
+		max_fails 3
+
+		stream_close_delay 1h
+
+		transport http {
+			dial_timeout 2s
+			response_header_timeout 60s
+			keepalive 90s
+		}
+
+		header_down -Server
+	}
+}
+
+# ParkingService: uncomment, set PARKING_HOST in deploy/edge/.env, and attach its API to the "edge" network with the
+# alias parking-api (see docs/DEPLOYMENT.md#adding-parkingservice).
+#
+# {$PARKING_HOST} {
+# 	import hardening
+# 	import access_log
+#
+# 	reverse_proxy parking-api:8080 {
+# 		health_uri /health
+# 		health_interval 10s
+# 	}
+# }

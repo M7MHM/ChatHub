@@ -82,6 +82,7 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
     [Fact]
     public async Task Seed_Messages_AreVisibleToMembersAndReadStateVaries()
     {
+        var windowStartsAfter = DateTime.UtcNow.AddDays(-Small.Days).AddMilliseconds(-1);
         await SeedAsync();
 
         var hiddenFromAMember = await QueryDbAsync(db => db.Messages.CountAsync(m =>
@@ -93,7 +94,7 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
         hiddenFromAMember.ShouldBe(0);
         withReadPointer.ShouldBeGreaterThan(0);
         withoutReadPointer.ShouldBeGreaterThan(0);
-        oldestMessage.ShouldBeGreaterThan(DateTime.UtcNow.AddDays(-Small.Days));
+        oldestMessage.ShouldBeGreaterThan(windowStartsAfter);
     }
 
     [Fact]

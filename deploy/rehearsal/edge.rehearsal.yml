@@ -1,0 +1,6 @@
+# Local rehearsal only: lets containers on the edge network (k6) reach Caddy by the rehearsal hostname.
+services:
+  caddy:
+    networks:
+      edge:
+        aliases: [chathub.rehearsal.test]

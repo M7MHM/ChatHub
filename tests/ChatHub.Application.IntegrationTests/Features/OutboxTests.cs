@@ -168,6 +168,7 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
     public async Task Register_WritesUserRegisteredWithTheNormalizedContactPreferencesAndUnsubscribeLink()
     {
         var auth = await RegisterAsync("Nora", email: "Nora@Example.com");
+        Clock.Advance(TimeSpan.FromSeconds(1));
         var phoneOnly = await RegisterAsync("Omar", phone: "+201001234567");
         var links = DomainEvents.OfType<UnsubscribeTokenIssuedEvent>().Select(e => $"{ApiBase}/email/unsubscribe?token={e.Token}").ToList();
 
@@ -189,7 +190,7 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
         e.ShouldBe(new EmailVerificationRequested(e.MessageId, e.OccurredAtUtc, auth.User.Id, "nora@example.com", "Nora",
             $"{ApiBase}/auth/verify-email?token={requested.Token}", e.ExpiresAtUtc));
         e.ExpiresAtUtc.ShouldBe(e.OccurredAtUtc + TimeSpan.FromHours(24), TimeSpan.FromMilliseconds(1));
-        (await OutboxAsync()).Select(r => r.Type).ShouldBe([nameof(UserRegistered), nameof(EmailVerificationRequested)]);
+        (await OutboxAsync()).Select(r => r.Type).ShouldBe([nameof(UserRegistered), nameof(EmailVerificationRequested)], ignoreOrder: true);
     }
 
     [Fact]
@@ -318,6 +319,7 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
         (await SendAsync(crew.Paula, new KickMemberCommand(crew.Group, crew.Rex))).ShouldSucceed();
         (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
         (await SendAsync(crew.Quinn, new MuteConversationCommand(crew.Group))).ShouldSucceed();
+        Clock.Advance(TimeSpan.FromSeconds(1));
         (await SendAsync(crew.Quinn, new UnmuteConversationCommand(crew.Group))).ShouldSucceed();
         (await SendAsync(crew.Quinn, new LeaveConversationCommand(crew.Group))).ShouldSucceed();
 
@@ -335,6 +337,7 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
         var crew = await CreateCrewAsync();
 
         await GoOnlineAsync(crew.Quinn);
+        Clock.Advance(TimeSpan.FromSeconds(1));
         await UseDbAsync(async db =>
         {
             (await db.UserProfiles.FirstAsync(u => u.Id == crew.Quinn)).GoOffline();

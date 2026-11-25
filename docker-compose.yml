@@ -73,7 +73,8 @@ services:
     build:
       context: .
       target: migrator
-    command: ["--connection", *db-connection]
+    environment:
+      ConnectionStrings__DefaultConnection: *db-connection
     networks: [chathub]
     depends_on:
       postgres:
@@ -136,7 +137,8 @@ services:
     build:
       context: .
       target: notifications-migrator
-    command: ["--connection", *notifications-db-connection]
+    environment:
+      ConnectionStrings__Notifications: *notifications-db-connection
     networks: [chathub]
     depends_on:
       postgres:
