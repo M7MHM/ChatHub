@@ -54,11 +54,16 @@ Docker must be running. The integration tests start their own PostgreSQL, Redis,
 
 [GitHub Actions](.github/workflows/ci.yml) builds and tests every pull request to `main` and every push to `main`, then builds all five Docker images. Pushes to `main` also publish the images to `ghcr.io/<owner>/chathub-*`. Dependabot proposes NuGet, Docker and Actions updates weekly. See [docs/CI.md](docs/CI.md).
 
+## Production
+
+One small server runs [docker-compose.prod.yml](docker-compose.prod.yml) behind a shared Caddy proxy ([deploy/edge](deploy/edge)) with automatic HTTPS. `deploy/deploy.sh <tag>` rolls out a CI-built image tag without downtime, `deploy/rollback.sh` goes back, and `deploy/backup.sh` / `deploy/restore.sh` handle backups. A manual [Deploy workflow](.github/workflows/deploy.yml) can run the deploy over SSH once its secrets are set. Server setup, DNS, email, the memory budget and the local rehearsal results are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Docs
 
 - [docs/MESSAGING.md](docs/MESSAGING.md): transactional outbox and RabbitMQ
 - [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md): the notification worker, digests, verification email, sending limits
 - [docs/PERFORMANCE.md](docs/PERFORMANCE.md): load-test results and the tuning behind them
 - [docs/CI.md](docs/CI.md): the CI pipeline, images and branch protection
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): server setup, deploys, rollbacks, backups and operations
 - [tests/COVERAGE.md](tests/COVERAGE.md): test projects and what they prove
 - [loadtest/README.md](loadtest/README.md): running the k6 load tests

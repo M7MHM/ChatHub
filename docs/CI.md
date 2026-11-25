@@ -92,6 +92,18 @@ Classic branch protection (*Settings → Branches → Add classic branch protect
 
 `test` is the one required check. The image builds (`docker (api)`, `docker (migrator)`, …) also run on pull requests; add them as required checks too if a Dockerfile change should not merge until every image builds.
 
+## Continuous deployment
+
+Deploys are not automatic. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) runs only by hand (*Actions → Deploy → Run workflow*) with one input, the image tag to deploy: the short SHA of a green CI run on `main`, whose images are already in GHCR. It connects to the server over SSH and runs `bash deploy/deploy.sh <tag>` there, which rolls the API replicas one at a time without downtime ([DEPLOYMENT.md](DEPLOYMENT.md#deploying)).
+
+- It runs in the `production` environment, so you can require a reviewer before it starts (*Settings → Environments → production → Required reviewers*).
+- Until the secrets `DEPLOY_SSH_HOST`, `DEPLOY_SSH_USER`, `DEPLOY_SSH_KEY` and `DEPLOY_SSH_KNOWN_HOSTS` are set on that environment, the workflow does nothing and shows a "Deploy skipped" notice; nothing fails. Setup steps: [DEPLOYMENT.md](DEPLOYMENT.md#continuous-deployment).
+- Only one deploy runs at a time (`concurrency: deploy-production`, never cancelled midway), and the server-side script takes its own lock as well.
+- The host key is pinned through `DEPLOY_SSH_KNOWN_HOSTS`; the workflow never trusts a key it has not seen before.
+- Rollbacks stay manual on the server (`bash deploy/rollback.sh`), or run the workflow with the previous tag (it then also runs the migrators, which do nothing because the database is already newer).
+
+`actionlint` and the GitHub workflow JSON schema check both workflows.
+
 ## Dependabot
 
 Every Monday Dependabot checks three ecosystems and opens pull requests, which run the same CI:

@@ -1,0 +1,13 @@
+[Unit]
+Description=ChatHub database and uploads backup
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/chathub
+ExecStart=/usr/bin/bash /opt/chathub/deploy/backup.sh
+Nice=10
+IOSchedulingClass=idle

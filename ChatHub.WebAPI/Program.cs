@@ -43,7 +43,9 @@ builder.Services.AddHealthChecks()
     .AddRedisHealthCheck(builder.Configuration, readyTag)
     .AddMessagingHealthChecks(builder.Configuration, readyTag);
 
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowedOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .ToArray();
 builder.Services.AddCors(options =>
     options.AddPolicy("Client", policy => policy
         .WithOrigins(allowedOrigins)
@@ -58,7 +60,7 @@ app.UseInstanceIdHeader();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
-if (app.Environment.IsDevelopment())
+if (app.Configuration.GetValue("OpenApi:Enabled", app.Environment.IsDevelopment()))
 {
     app.MapOpenApi();
     app.MapScalarApiReference();

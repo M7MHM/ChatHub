@@ -54,6 +54,39 @@ public sealed class InfrastructureEndpointTests(ApiFixture fixture) : ApiTestBas
         response.Status.ShouldBe(200);
     }
 
+    [Theory]
+    [InlineData("Production", null, 404)]
+    [InlineData("Production", "true", 200)]
+    [InlineData("Development", "false", 404)]
+    public async Task OpenApiAndScalar_FollowTheOpenApiEnabledSetting(string environment, string? enabled, int expected)
+    {
+        var settings = new Dictionary<string, string?> { ["environment"] = environment, ["Https:RedirectEnabled"] = "false" };
+        if (enabled is not null) settings["OpenApi:Enabled"] = enabled;
+        await using var host = Fixture.CreateFactory(settings);
+        var api = NewClient(host);
+
+        (await api.GetAsync("/openapi/v1.json")).Status.ShouldBe(expected);
+        (await api.GetAsync("/scalar/v1")).Status.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task CorsPreflight_WithAnEmptyConfiguredOrigin_StillAllowsTheConfiguredOne()
+    {
+        await using var host = Fixture.CreateFactory(new Dictionary<string, string?>
+        {
+            ["Cors:AllowedOrigins:0"] = "https://chathub.example.app",
+            ["Cors:AllowedOrigins:1"] = ""
+        });
+        using var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/users/me");
+        preflight.Headers.Add("Origin", "https://chathub.example.app");
+        preflight.Headers.Add("Access-Control-Request-Method", "GET");
+
+        var response = await NewClient(host).SendAsync(preflight);
+
+        response.Status.ShouldBe(204);
+        response.Header("Access-Control-Allow-Origin").ShouldBe("https://chathub.example.app");
+    }
+
     [Fact]
     public async Task CorsPreflight_FromTheReactDevOrigin_IsAllowedWithCredentials()
     {

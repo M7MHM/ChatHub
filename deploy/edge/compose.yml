@@ -1,0 +1,52 @@
+name: edge
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    ports:
+      - "${EDGE_HTTP_PORT:-80}:80"
+      - "${EDGE_HTTPS_PORT:-443}:443"
+      - "${EDGE_HTTPS_PORT:-443}:443/udp"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/edge/.env}
+      EDGE_LOCAL_CERTS: ${EDGE_LOCAL_CERTS:-}
+      CHATHUB_HOST: ${CHATHUB_HOST:?set CHATHUB_HOST in deploy/edge/.env}
+      CHATHUB_DOCS_PUBLIC: ${CHATHUB_DOCS_PUBLIC:-false}
+      PARKING_HOST: ${PARKING_HOST:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./upstreams:/etc/caddy/upstreams:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      edge:
+        ipv4_address: ${EDGE_PROXY_IP:-172.31.0.2}
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 96M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  edge:
+    name: edge
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.31.0.0/24}
+          ip_range: ${EDGE_IP_RANGE:-172.31.0.128/25}
+
+volumes:
+  caddy-data:
+  caddy-config:

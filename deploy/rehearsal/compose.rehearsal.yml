@@ -1,0 +1,31 @@
+# Local rehearsal only (docs/DEPLOYMENT.md#local-rehearsal): Mailpit instead of Brevo, and the seeder.
+# Used with COMPOSE_OVERRIDES=deploy/rehearsal/compose.rehearsal.yml and ENV_FILE=.env.rehearsal.
+
+services:
+  notifications:
+    environment:
+      Smtp__Host: mailpit
+      Smtp__Port: "1025"
+      Smtp__Security: None
+      Smtp__User: ""
+      Smtp__Password: ""
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18025:8025"
+    networks: [backend, egress]
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  seeder:
+    image: ${CHATHUB_IMAGE_PREFIX}/chathub-seeder:${CHATHUB_TAG:-latest}
+    profiles: ["seed"]
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-chathub};Username=${POSTGRES_USER:-chathub};Password=${POSTGRES_PASSWORD};Gss Encryption Mode=Disable"
+      App__PublicApiBaseUrl: https://${CHATHUB_HOST}
+    networks: [backend]
+    restart: "no"

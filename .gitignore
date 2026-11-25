@@ -493,3 +493,9 @@ $RECYCLE.BIN/
 # ChatHub private file storage (FileStorage:RootPath)
 /storage/
 ChatHub.WebAPI/storage/
+
+# Deployment (docs/DEPLOYMENT.md): the production env template is tracked; deploy state and generated
+# Caddy upstream lists are per server
+!/.env.prod.example
+/deploy/.state/
+/deploy/edge/upstreams/*.caddy
