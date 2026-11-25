@@ -491,4 +491,5 @@ $RECYCLE.BIN/
 *.swp
 
 # ChatHub private file storage (FileStorage:RootPath)
-storage/
+/storage/
+ChatHub.WebAPI/storage/
