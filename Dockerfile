@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 COPY ChatHub.Contracts/ChatHub.Contracts.csproj ChatHub.Contracts/
 COPY ChatHub.Domain/ChatHub.Domain.csproj ChatHub.Domain/
@@ -15,7 +15,7 @@ COPY ChatHub.Infrastructure/ ChatHub.Infrastructure/
 COPY ChatHub.WebAPI/ ChatHub.WebAPI/
 RUN dotnet publish ChatHub.WebAPI/ChatHub.WebAPI.csproj -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS ef-tools
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS ef-tools
 ARG EF_TOOLS_VERSION=10.0.4
 RUN dotnet tool install dotnet-ef --version ${EF_TOOLS_VERSION} --tool-path /tools
 
@@ -35,7 +35,7 @@ RUN case "$TARGETARCH" in \
         --target-runtime "$rid" \
         --output /app/efbundle
 
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS notifications-build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS notifications-build
 WORKDIR /src
 COPY ChatHub.Contracts/ChatHub.Contracts.csproj ChatHub.Contracts/
 COPY ChatHub.Notifications/ChatHub.Notifications.csproj ChatHub.Notifications/
