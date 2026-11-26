@@ -5,6 +5,7 @@ using ChatHub.Application.Common.Caching;
 using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Features.Auth;
+using ChatHub.Application.Features.Users;
 using ChatHub.Infrastructure.Caching;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Messaging;
@@ -195,6 +196,24 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(AppUrlSettings.SectionName))
             .Validate(s => AppUrlSettings.IsValidBaseUrl(s.PublicApiBaseUrl),
                 "App PublicApiBaseUrl must be an absolute http(s) URL without a query string.")
+            .Validate(s => AppUrlSettings.IsValidBaseUrl(s.FrontendBaseUrl),
+                "App FrontendBaseUrl must be an absolute http(s) URL without a query string.")
+            .ValidateOnStart();
+
+        services.AddOptions<PasswordResetSettings>()
+            .Bind(configuration.GetSection(PasswordResetSettings.SectionName))
+            .Validate(s => s.TokenLifetimeMinutes is >= 5 and <= 1440,
+                "PasswordReset TokenLifetimeMinutes must be between 5 and 1440.")
+            .Validate(s => s.MaxRequestsPerHour is > 0 and <= 100,
+                "PasswordReset MaxRequestsPerHour must be between 1 and 100.")
+            .Validate(s => s.MinimumResponseMilliseconds is >= 0 and <= 5000,
+                "PasswordReset MinimumResponseMilliseconds must be between 0 and 5000.")
+            .ValidateOnStart();
+
+        services.AddOptions<UsernameSettings>()
+            .Bind(configuration.GetSection(UsernameSettings.SectionName))
+            .Validate(s => s.ChangeCooldownDays is >= 0 and <= 365,
+                "Username ChangeCooldownDays must be between 0 and 365.")
             .ValidateOnStart();
 
         services.AddOptions<EmailVerificationSettings>()
@@ -205,7 +224,11 @@ public static class DependencyInjection
                 "EmailVerification MaxRequestsPerHour must be between 1 and 100.")
             .ValidateOnStart();
 
-        services.AddSingleton(sp => new EmailLinks(sp.GetRequiredService<IOptions<AppUrlSettings>>().Value.PublicApiBaseUrl));
+        services.AddSingleton(sp =>
+        {
+            var urls = sp.GetRequiredService<IOptions<AppUrlSettings>>().Value;
+            return new EmailLinks(urls.PublicApiBaseUrl, urls.FrontendBaseUrl);
+        });
     }
 
     private static void AddFileStorage(this IServiceCollection services, IConfiguration configuration)

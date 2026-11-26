@@ -68,7 +68,7 @@ public sealed class DeletedAccountVisibilityTests(DatabaseFixture database) : Ap
     }
 
     private static void ShouldBeMasked(UserSummary? user, Guid userId) =>
-        user.ShouldBe(new UserSummary(userId, UserSummary.DeletedDisplayName, null, false, null));
+        user.ShouldBe(new UserSummary(userId, null, UserSummary.DeletedDisplayName, null, false, null));
 
     private async Task<(Guid Mia, Guid Owen, Guid Direct)> CreateDeletedOwenScenarioAsync(Guid? blockedBy = null)
     {

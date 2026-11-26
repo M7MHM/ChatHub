@@ -14,6 +14,8 @@ public class UserProfile : BaseAuditableEntity
 
     public PhoneNumber? PhoneNumber { get; private set; }
     public Email? Email { get; private set; }
+    public Username Username { get; private set; } = null!;
+    public DateTime? UsernameChangedAtUtc { get; private set; }
     public string DisplayName { get; private set; } = string.Empty;
     public string PasswordHash { get; private set; } = string.Empty;
     public Guid SecurityStamp { get; private set; }
@@ -24,6 +26,7 @@ public class UserProfile : BaseAuditableEntity
     public DateTime? EmailVerifiedAtUtc { get; private set; }
     public bool EmailNotificationsEnabled { get; private set; } = true;
     public string? UnsubscribeTokenHash { get; private set; }
+    public bool ShowLastSeen { get; private set; } = true;
 
     public bool IsEmailVerified => EmailVerifiedAtUtc is not null;
 
@@ -31,14 +34,16 @@ public class UserProfile : BaseAuditableEntity
     public ICollection<UserBlock> BlockedUsers { get; private set; } = new List<UserBlock>();
     public ICollection<UserBlock> BlockedByUsers { get; private set; } = new List<UserBlock>();
 
-    public static UserProfile Create(string displayName, string passwordHash,
+    public static UserProfile Create(Username username, string displayName, string passwordHash,
         PhoneNumber? phoneNumber = null, Email? email = null)
     {
+        ArgumentNullException.ThrowIfNull(username);
         if (phoneNumber is null && email is null)
             throw new DomainRuleViolationException("A user must have a phone number or an email.");
 
         return new UserProfile
         {
+            Username = username,
             DisplayName = ValidateDisplayName(displayName),
             PasswordHash = ValidatePasswordHash(passwordHash),
             SecurityStamp = Guid.NewGuid(),
@@ -47,10 +52,10 @@ public class UserProfile : BaseAuditableEntity
         };
     }
 
-    public static UserProfile Register(string displayName, string passwordHash,
+    public static UserProfile Register(Username username, string displayName, string passwordHash,
         PhoneNumber? phoneNumber = null, Email? email = null)
     {
-        var user = Create(displayName, passwordHash, phoneNumber, email);
+        var user = Create(username, displayName, passwordHash, phoneNumber, email);
         user.AddDomainEvent(new UserRegisteredEvent(user.Id));
         return user;
     }
@@ -80,6 +85,61 @@ public class UserProfile : BaseAuditableEntity
     }
 
     public void RotateSecurityStamp() => SecurityStamp = Guid.NewGuid();
+
+    public DateTime? NextUsernameChangeAtUtc(TimeSpan cooldown) => UsernameChangedAtUtc + cooldown;
+
+    public bool CanChangeUsername(DateTime nowUtc, TimeSpan cooldown) =>
+        NextUsernameChangeAtUtc(cooldown) is not { } next || nowUtc >= next;
+
+    public void ChangeUsername(Username username, DateTime nowUtc, TimeSpan cooldown)
+    {
+        EnsureNotDeleted();
+        ArgumentNullException.ThrowIfNull(username);
+        if (username == Username) return;
+        if (!CanChangeUsername(nowUtc, cooldown))
+            throw new DomainRuleViolationException("The username was changed too recently.");
+
+        Username = username;
+        UsernameChangedAtUtc = nowUtc;
+        AddDomainEvent(new UserProfileUpdatedEvent(Id));
+    }
+
+    public void SetLastSeenVisibility(bool showLastSeen)
+    {
+        EnsureNotDeleted();
+        if (ShowLastSeen == showLastSeen) return;
+
+        ShowLastSeen = showLastSeen;
+        AddDomainEvent(new LastSeenVisibilityChangedEvent(Id, showLastSeen));
+    }
+
+    public PasswordResetToken RequestPasswordReset(string token, string tokenHash, DateTime nowUtc, TimeSpan lifetime)
+    {
+        EnsureNotDeleted();
+        if (string.IsNullOrWhiteSpace(token))
+            throw new DomainRuleViolationException("A password reset token is required.");
+        if (Email is null || !IsEmailVerified)
+            throw new DomainRuleViolationException("A password reset needs a verified email address.");
+
+        var reset = PasswordResetToken.Issue(Id, Email, tokenHash, nowUtc, lifetime);
+        AddDomainEvent(new PasswordResetRequestedEvent(Id, Email.Value, token, reset.ExpiresAtUtc));
+        return reset;
+    }
+
+    public void ResetPassword(PasswordResetToken reset, string newPasswordHash, DateTime nowUtc)
+    {
+        EnsureNotDeleted();
+        if (reset.UserId != Id)
+            throw new DomainRuleViolationException("The password reset token belongs to another user.");
+        if (Email is null || reset.Email != Email.Value)
+            throw new DomainRuleViolationException("The password reset token was issued for another email address.");
+
+        var passwordHash = ValidatePasswordHash(newPasswordHash);
+        reset.MarkUsed(nowUtc);
+        PasswordHash = passwordHash;
+        RotateSecurityStamp();
+        AddDomainEvent(new PasswordResetCompletedEvent(Id, Email.Value, nowUtc));
+    }
 
     public void ChangePhoneNumber(PhoneNumber? phoneNumber)
     {

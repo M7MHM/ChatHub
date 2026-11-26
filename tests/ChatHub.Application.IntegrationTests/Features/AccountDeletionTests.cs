@@ -50,7 +50,7 @@ public sealed class AccountDeletionTests(DatabaseFixture database) : AppTestBase
 
         (await SendAsync(dave, new DeleteMyAccountCommand())).ShouldSucceed();
 
-        (await SendAsync(null, new RegisterCommand("Dave 2", "dave@example.com", null, Password))).ShouldSucceed();
+        (await SendAsync(null, new RegisterCommand("Dave 2", TestUsernames.For("Dave 2"), "dave@example.com", null, Password))).ShouldSucceed();
     }
 
     [Fact]

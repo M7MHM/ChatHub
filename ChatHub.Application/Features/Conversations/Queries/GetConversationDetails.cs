@@ -26,6 +26,7 @@ public sealed class GetConversationDetailsQueryHandler(IApplicationDbContext db,
         GetConversationDetailsQuery request, CancellationToken cancellationToken)
     {
         var me = currentUser.GetRequiredUserId();
+        var iSharePresence = await db.SharesPresenceAsync(me, cancellationToken);
 
         var row = await db.Conversations
             .AsNoTracking()
@@ -45,8 +46,9 @@ public sealed class GetConversationDetailsQueryHandler(IApplicationDbContext db,
                     .Where(m => m.IsActive)
                     .OrderByDescending(m => m.Role).ThenBy(m => m.User.IsDeleted).ThenBy(m => m.User.DisplayName)
                     .Select(m => new ConversationMemberResponse(
-                        UserSummary.Create(m.User.Id, m.User.DisplayName, m.User.AvatarUrl, m.User.IsOnline,
-                            m.User.LastSeenUtc, m.User.IsDeleted),
+                        UserSummary.Create(m.User.Id, m.User.Username, m.User.DisplayName, m.User.AvatarUrl,
+                            m.User.IsOnline, m.User.LastSeenUtc, m.User.IsDeleted,
+                            m.UserId == me || (m.User.ShowLastSeen && iSharePresence)),
                         m.Role,
                         m.JoinedAtUtc))
                     .ToList()

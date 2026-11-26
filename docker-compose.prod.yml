@@ -155,6 +155,7 @@ services:
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:?set FRONTEND_ORIGIN in .env.prod}
       Cors__AllowedOrigins__1: ${FRONTEND_EXTRA_ORIGIN:-}
       App__PublicApiBaseUrl: https://${CHATHUB_HOST:?set CHATHUB_HOST in .env.prod}
+      App__FrontendBaseUrl: ${FRONTEND_ORIGIN:?set FRONTEND_ORIGIN in .env.prod}
       OpenApi__Enabled: ${CHATHUB_DOCS_PUBLIC:-false}
       Diagnostics__ExposeInstanceId: ${EXPOSE_INSTANCE_ID:-false}
       Messaging__Enabled: "true"
@@ -163,6 +164,9 @@ services:
       Messaging__Password: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env.prod}
       EmailVerification__TokenLifetimeHours: ${EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS:-24}
       EmailVerification__MaxRequestsPerHour: ${EMAIL_VERIFICATION_MAX_REQUESTS_PER_HOUR:-3}
+      PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
+      PasswordReset__MaxRequestsPerHour: ${PASSWORD_RESET_MAX_REQUESTS_PER_HOUR:-3}
+      Username__ChangeCooldownDays: ${USERNAME_CHANGE_COOLDOWN_DAYS:-14}
       RateLimiting__AuthStrictPermitLimit: ${RATE_LIMIT_AUTH_STRICT:-10}
     labels:
       chathub.config-fingerprint: ${CHATHUB_CONFIG_FINGERPRINT:-}

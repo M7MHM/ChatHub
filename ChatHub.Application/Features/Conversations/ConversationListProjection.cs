@@ -45,8 +45,9 @@ internal static class ConversationListProjection
                     .Where(o => r.Member.Conversation.Type == ConversationType.Direct &&
                                 o.ConversationId == r.Member.ConversationId &&
                                 o.UserId != r.Member.UserId)
-                    .Select(o => UserSummary.Create(o.User.Id, o.User.DisplayName, o.User.AvatarUrl,
-                        o.User.IsOnline, o.User.LastSeenUtc, o.User.IsDeleted))
+                    .Select(o => UserSummary.Create(o.User.Id, o.User.Username, o.User.DisplayName, o.User.AvatarUrl,
+                        o.User.IsOnline, o.User.LastSeenUtc, o.User.IsDeleted,
+                        o.User.ShowLastSeen && r.Member.User.ShowLastSeen))
                     .FirstOrDefault(),
                 LastMessage = db.Messages
                     .Where(x => x.Id == r.Member.Conversation.LastMessageId && x.CreatedAtUtc > r.VisibleAfterUtc)

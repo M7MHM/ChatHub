@@ -27,13 +27,20 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
-| ChatHub.Domain.UnitTests | 177 | 229 |
-| ChatHub.Application.IntegrationTests | 302 | 324 |
-| ChatHub.Api.IntegrationTests | 176 | 182 |
-| ChatHub.Notifications.Tests | 92 | 117 |
-| **Total** | **747** | **852** |
+| ChatHub.Domain.UnitTests | 196 | 282 |
+| ChatHub.Application.IntegrationTests | 354 | 390 |
+| ChatHub.Api.IntegrationTests | 194 | 200 |
+| ChatHub.Notifications.Tests | 105 | 131 |
+| **Total** | **849** | **1003** |
 
 Since the harness port: the transactional outbox and RabbitMQ publisher added 3 domain, 26 application and 4 API test cases (`OutboxTests`, `OutboxPublisherTests`, `MessagingTests`; see [docs/MESSAGING.md](../docs/MESSAGING.md#tests)). The notification service added its own project (47 cases) and 2 backfill tests in `SeederTests` (see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#tests)). Phone numbers through libphonenumber (Egyptian mobiles in local, national or international form, other countries with +, stored in E.164) replaced the 6 `PhoneNumberTests` methods with 11 (35 cases) and added 17 application cases in `AuthTests` (formats, duplicates and login across formats, landlines and wrong lengths rejected, a legacy stored value still loads) and 1 API case. SMTP connection reuse added 3 `EmailChannelTests`. Email verification, email preferences and one-click unsubscribe added 14 domain cases (`EmailVerificationTests`), 27 application cases (`EmailVerificationTests`, `EmailPreferenceTests`, 4 in `OutboxTests`, 1 in `OutboxPublisherTests`, 3 in `SeederTests`, 1 in `PersistenceTests`), 10 API cases (`EmailTests`) and 25 notification cases (`VerificationEmailTests`, `DigestEligibilityTests`, `EventContractTests`, 3 in `RecipientTests`, 4 in `EmailChannelTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#email-verification). The missing events, sending limits and the transactional email queue added 1 domain case (mute events), 4 application cases (3 in `OutboxTests`, 1 in `SeederTests`; two `OutboxTests` were rewritten because edits, deletions, leaving and presence are now published) and 42 notification cases (`ConversationEventTests` 12, `PresenceTests` 4, `SendingLimitTests` 7, `SuppressionTests` 16, 2 more in `VerificationEmailTests`, which now covers the queue, and 1 in `HostTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#sending-limits). The messaging tests also start `rabbitmq:4-management`, and `EmailChannelTests` starts `axllent/mailpit`; each test class or collection that stops a broker has its own container. The CI work added 1 API case (`RedisCacheTests.CacheDisposed_TheConnectionOfTheTrackerAndTheBackplaneStaysOpen`, see [Stable on CI](#stable-on-ci)). The deployment work added 4 API cases in `InfrastructureEndpointTests`: `OpenApiAndScalar_FollowTheOpenApiEnabledSetting` (theory, 3 cases: off by default in Production, on with `OpenApi:Enabled=true`, off in Development with `false`) and `CorsPreflight_WithAnEmptyConfiguredOrigin_StillAllowsTheConfiguredOne` (an unset `FRONTEND_EXTRA_ORIGIN` reaches the API as an empty origin and is ignored); see [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
+
+Usernames, last-seen privacy and forgot/reset password added 151 cases (852 → 1003):
+
+- **Domain (53):** `UsernameTests` (43: normalization, every format rule, reserved names in any case, equality, change cooldown, same-name no-op, deleted users), `LastSeenPrivacyTests` (4), `PasswordResetTests` (6: verified email required, use, expiry, invalidation, another user's token, a token for an old address).
+- **Application (66):** `UsernameTests` (34: registration with taken, freed, invalid, reserved and racing usernames, change with cooldown, `ProfileUpdated` to peers, availability including deleted and blocking users, login by username with the same hashing work for unknown names, search by exact name and prefix, usernames in the conversation list and members), `LastSeenPrivacyTests` (14: every projection for a hidden user and for a viewer who hides their own, the user's own status, blocked list, messages without presence, `PresenceChanged` and `ProfileUpdated` fan-out by both rules, toggling both ways pushing `PresenceChanged` at once, cached `GetMe` and queries after a toggle), `PasswordResetTests` (12: one hashed token and the outbox event with the frontend link, the same answer for unknown, unverified, phone-only and deleted accounts, the per-account limit, newer links invalidating older ones, reset rotating the stamp, revoking refresh tokens and disconnecting, used, expired, raced and old-address tokens), `PasswordResetTimingTests` (2: known and unknown addresses both wait the minimum response time on the fake clock), `PersistenceTests` (2: the username backfill over legacy rows, and the indexes), `OutboxPublisherTests` (1: both reset events redacted after publishing), `SeederTests` (1: `seed_0001` usernames). Existing tests now register with a username (`TestUsernames.For`), `PersistenceTests` expects 8 migrations, and `PasswordReset:MinimumResponseMilliseconds` is 0 in `AppTestBase`, so the fake clock never stalls other tests.
+- **API (18):** `UsernameTests` (5), `PrivacyTests` (6: with live hub clients, hiding and showing reach a connected peer at once, a hidden user connecting sends no presence, a viewer who hides gets no presence but still gets typing, pushed messages carry no presence), `PasswordResetTests` (4: identical 202 bodies after the minimum time, reset closing the hub connection and rejecting the old access and refresh tokens), 2 in `RateLimitingTests` (forgot-password 5 a minute, username availability 30 a minute) and 1 in `RedisCacheTests` (toggling privacy removes the profile entry from Redis, and no cache entry for the user carries presence to others).
+- **Notifications (14):** `PasswordResetEmailTests` (12, see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#password-reset)) and 2 in `EmailChannelTests` (both templates through Mailpit).
 
 ## What changed in the port
 
@@ -61,7 +68,7 @@ CI has to pass on the first run, not after a re-run, so the suite follows these 
 
 ## Domain invariants added beyond the harnesses
 
-`ChatHub.Domain.UnitTests` has 169 test methods that cover Domain rules the harnesses never exercised:
+`ChatHub.Domain.UnitTests` has 188 test methods that cover Domain rules the harnesses never exercised:
 
 | Class | Added test methods |
 |---|---:|
@@ -71,12 +78,15 @@ CI has to pass on the first run, not after a re-run, so the suite follows these 
 | `ConversationTests` | 46 |
 | `EmailTests` | 5 |
 | `EmailVerificationTests` | 14 |
+| `LastSeenPrivacyTests` | 4 |
 | `MessageTests` | 20 |
+| `PasswordResetTests` | 6 |
 | `PhoneNumberTests` | 11 |
 | `RefreshTokenTests` | 8 |
 | `UploadedFileTests` | 7 |
 | `UserBlockTests` | 3 |
 | `UserProfileTests` | 25 |
+| `UsernameTests` | 9 |
 
 ## Horizontal scaling
 

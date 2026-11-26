@@ -7,7 +7,9 @@ namespace ChatHub.Domain.UnitTests;
 internal static class TestData
 {
     public static UserProfile User(string displayName = "Alice") =>
-        UserProfile.Create(displayName, "hash", email: Email.Create($"{Guid.NewGuid():N}@example.com"));
+        UserProfile.Create(AnyUsername(), displayName, "hash", email: Email.Create($"{Guid.NewGuid():N}@example.com"));
+
+    public static Username AnyUsername(string displayName = "user") => Username.Create(TestUsernames.For(displayName));
 
     public static Attachment Png(Guid? fileId = null) => Attachment.Create(fileId ?? Guid.NewGuid(), "a.png", "image/png", 10);
 

@@ -45,6 +45,8 @@ public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
     {
         DigestNotification digest => CanDeliverTo(digest.Recipient),
         EmailVerificationNotification verification => !string.IsNullOrWhiteSpace(verification.Email),
+        PasswordResetNotification reset => !string.IsNullOrWhiteSpace(reset.Email),
+        PasswordChangedNotification changed => !string.IsNullOrWhiteSpace(changed.Email),
         _ => false
     };
 
@@ -125,6 +127,14 @@ public sealed class EmailChannel : INotificationChannel, IAsyncDisposable
             case EmailVerificationNotification verification:
                 email = VerificationEmailTemplate.Render(verification);
                 message.To.Add(new MailboxAddress(verification.DisplayName, verification.Email));
+                break;
+            case PasswordResetNotification reset:
+                email = PasswordResetEmailTemplate.Render(reset);
+                message.To.Add(new MailboxAddress(reset.DisplayName, reset.Email));
+                break;
+            case PasswordChangedNotification changed:
+                email = PasswordChangedEmailTemplate.Render(changed);
+                message.To.Add(new MailboxAddress(changed.DisplayName, changed.Email));
                 break;
             default:
                 throw new NotSupportedException($"The email channel cannot send {notification.GetType().Name}.");

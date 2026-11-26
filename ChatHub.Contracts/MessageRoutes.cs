@@ -18,6 +18,8 @@ public static class MessageRoutes
     public const string MemberLeft = "conversation.member-left";
     public const string MemberKicked = "conversation.member-kicked";
     public const string ConversationMuteChanged = "conversation.mute-changed";
+    public const string PasswordResetRequested = "user.password-reset-requested";
+    public const string PasswordResetCompleted = "user.password-reset-completed";
 
     private static readonly Dictionary<Type, string> RoutingKeys = new()
     {
@@ -32,7 +34,9 @@ public static class MessageRoutes
         [typeof(Events.MessageDeleted)] = MessageDeleted,
         [typeof(Events.MemberLeft)] = MemberLeft,
         [typeof(Events.MemberKicked)] = MemberKicked,
-        [typeof(Events.ConversationMuteChanged)] = ConversationMuteChanged
+        [typeof(Events.ConversationMuteChanged)] = ConversationMuteChanged,
+        [typeof(Events.PasswordResetRequested)] = PasswordResetRequested,
+        [typeof(Events.PasswordResetCompleted)] = PasswordResetCompleted
     };
 
     private static readonly Dictionary<string, Type> EventTypes =

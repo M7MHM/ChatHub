@@ -21,8 +21,8 @@ public sealed class MemberAddedEventHandler(
             .Where(m => m.ConversationId == domainEvent.ConversationId && m.UserId == domainEvent.UserId && m.IsActive)
             .Select(m => new MemberAddedPayload(
                 m.ConversationId,
-                UserSummary.Create(m.User.Id, m.User.DisplayName, m.User.AvatarUrl, m.User.IsOnline,
-                    m.User.LastSeenUtc, m.User.IsDeleted),
+                UserSummary.Create(m.User.Id, m.User.Username, m.User.DisplayName, m.User.AvatarUrl, m.User.IsOnline,
+                    m.User.LastSeenUtc, m.User.IsDeleted, presenceVisible: false),
                 m.Role))
             .FirstOrDefaultAsync(cancellationToken);
         if (payload is null) return;

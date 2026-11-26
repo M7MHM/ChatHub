@@ -36,4 +36,6 @@ public sealed class NotificationSettings
     public TimeSpan SendBacklogAlert => TimeSpan.FromMinutes(SendBacklogAlertMinutes);
 
     public string ConversationLink(Guid conversationId) => $"{AppBaseUrl.TrimEnd('/')}/conversations/{conversationId}";
+
+    public string ForgotPasswordLink => $"{AppBaseUrl.TrimEnd('/')}/forgot-password";
 }

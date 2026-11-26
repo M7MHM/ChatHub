@@ -63,6 +63,8 @@ public sealed record SeedOptions
 
     public static string EmailOf(int index) => $"seed-{index:D4}@{EmailDomain}";
 
+    public static string UsernameOf(int index) => $"seed_{index:D4}";
+
     public static SeedOptions Parse(IReadOnlyList<string> args)
     {
         var options = new SeedOptions();

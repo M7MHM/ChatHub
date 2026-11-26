@@ -1,5 +1,6 @@
 using ChatHub.Api.IntegrationTests.Infrastructure;
 using ChatHub.Infrastructure.Caching;
+using ChatHub.Infrastructure.RealTime;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -42,12 +43,37 @@ public sealed class RedisCacheTests(RedisApiFixture fixture) : ApiTestBase(fixtu
     }
 
     [Fact]
+    public async Task HidingLastSeen_WithRedis_DropsTheCachedProfileAndNoCachedEntryShowsThePresenceToOthers()
+    {
+        var alice = await RegisterAsync("Alice");
+        var bob = await RegisterAsync("Bob");
+        await CreateDirectAsync(alice, bob.Id);
+        var profileKey = $"chathub:user:profile:{bob.Id}";
+        await ConnectHubAsync(bob);
+        (await Api.GetAsync("/api/users/me", bob.Token)).Json.B("showLastSeen").ShouldBeTrue();
+        (await Api.GetAsync($"/api/users/{bob.Id}", alice.Token)).Json.B("isOnline").ShouldBeTrue();
+        (await fixture.RedisKeysAsync(profileKey)).ShouldHaveSingleItem();
+
+        (await Api.PutAsync("/api/users/me/privacy", new { showLastSeen = false }, bob.Token)).Status.ShouldBe(204);
+
+        (await fixture.RedisKeysAsync(profileKey)).ShouldBeEmpty();
+        (await Api.GetAsync("/api/users/me", bob.Token)).Json.B("showLastSeen").ShouldBeFalse();
+        var seenByAlice = await Api.GetAsync($"/api/users/{bob.Id}", alice.Token);
+        (seenByAlice.Json.B("isOnline"), seenByAlice.Json.S("lastSeenUtc")).ShouldBe((false, null));
+        var list = await Api.GetAsync("/api/conversations", alice.Token);
+        list.Json.P("items")[0].P("otherUser").B("isOnline").ShouldBeFalse();
+        var trackerKey = RedisUserConnectionTracker.UserKey(bob.Id).ToString();
+        (await fixture.RedisKeysAsync($"chathub:*{bob.Id}*")).Where(k => k != trackerKey).ShouldBe(
+            [$"chathub:auth:stamp:{bob.Id}", profileKey], ignoreOrder: true);
+    }
+
+    [Fact]
     public async Task CachingDisabled_GetMe_WorksAndNothingIsWrittenToTheCache()
     {
         await using var host = fixture.CreateFactory(new Dictionary<string, string?> { ["Caching:Enabled"] = "false" });
         var api = NewClient(host);
         var registered = await api.PostAsync("/api/auth/register",
-            new { displayName = "Nora", email = "nora@example.com", password = Password });
+            new { displayName = "Nora", username = TestUsernames.For("Nora"), email = "nora@example.com", password = Password });
         registered.Status.ShouldBe(201);
         var token = registered.Json.S("accessToken");
         var userId = registered.Json.P("user").G("id");

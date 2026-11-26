@@ -24,4 +24,11 @@ public static class ValidationExtensions
     public static IRuleBuilderOptions<T, string?> ValidPhoneNumber<T>(this IRuleBuilder<T, string?> rule) =>
         rule.Must(v => string.IsNullOrWhiteSpace(v) || ContactParser.TryParsePhoneNumber(v) is not null)
             .WithMessage(PhoneNumber.InvalidMessage);
+
+    public static IRuleBuilderOptions<T, string> ValidUsername<T>(this IRuleBuilder<T, string> rule) =>
+        rule.NotEmpty()
+            .Must(v => string.IsNullOrWhiteSpace(v) || Username.IsWellFormed(Username.Normalize(v)))
+            .WithMessage(Username.RulesMessage)
+            .Must(v => !Username.IsReserved(v))
+            .WithMessage(Username.ReservedMessage);
 }

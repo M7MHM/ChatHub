@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Sockets;
+using ChatHub.Application.Features.Auth.Commands;
 using ChatHub.Application.IntegrationTests.Infrastructure;
 using ChatHub.Contracts;
 using ChatHub.Contracts.Events;
+using ChatHub.Domain.Events;
 using ChatHub.Infrastructure.Messaging;
 using ChatHub.Infrastructure.RealTime;
 using Microsoft.EntityFrameworkCore;
@@ -102,6 +104,30 @@ public sealed class OutboxPublisherTests(DatabaseFixture database, RabbitMqFixtu
         rows.ShouldAllBe(r => r.ProcessedAtUtc != null);
         rows.Where(r => r.Type != nameof(MessageSent)).Select(r => r.Payload).ShouldBe(["{}", "{}"]);
         rows.Single(r => r.Type == nameof(MessageSent)).Payload.ShouldContain("hello broker");
+    }
+
+    [Fact]
+    public async Task PublishPending_PasswordResetEvents_AreRedactedInTheOutboxOnceTheBrokerHasThem()
+    {
+        await using var queue = await TestQueue.BindAsync(rabbit, "#");
+        var nora = (await RegisterAsync("Nora", email: "nora@example.com")).User.Id;
+        var verification = DomainEvents.OfType<EmailVerificationRequestedEvent>().Single().Token;
+        (await SendAsync(null, new VerifyEmailCommand(verification))).ShouldSucceed();
+        (await SendAsync(null, new ForgotPasswordCommand("nora@example.com"))).ShouldSucceed();
+        var reset = DomainEvents.OfType<PasswordResetRequestedEvent>().Single().Token;
+        (await SendAsync(null, new ResetPasswordCommand(reset, "brandnew789"))).ShouldSucceed();
+
+        await DrainAsync(Publisher);
+
+        var deliveries = await queue.TakeAllAsync();
+        TestQueue.Read<PasswordResetRequested>(deliveries.Single(d => d.RoutingKey == MessageRoutes.PasswordResetRequested))
+            .ResetLink.ShouldEndWith($"/reset-password?token={reset}");
+        TestQueue.Read<PasswordResetCompleted>(deliveries.Single(d => d.RoutingKey == MessageRoutes.PasswordResetCompleted))
+            .UserId.ShouldBe(nora);
+        var rows = await QueryDbAsync(db => db.OutboxMessages.AsNoTracking()
+            .Where(r => r.Type == nameof(PasswordResetRequested) || r.Type == nameof(PasswordResetCompleted)).ToListAsync());
+        rows.Count.ShouldBe(2);
+        rows.ShouldAllBe(r => r.ProcessedAtUtc != null && r.Payload == OutboxMessage.RedactedPayload);
     }
 
     [Fact]

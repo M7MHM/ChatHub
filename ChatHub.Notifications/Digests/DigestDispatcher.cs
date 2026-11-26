@@ -146,6 +146,10 @@ public sealed class DigestDispatcher(
         {
             OutgoingEmailTemplate.EmailVerification => new EmailVerificationNotification(email.UserId, email.ToAddress,
                 email.DisplayName, email.Link, email.ExpiresAtUtc),
+            OutgoingEmailTemplate.PasswordReset => new PasswordResetNotification(email.UserId, email.ToAddress,
+                email.DisplayName, email.Link, email.ExpiresAtUtc),
+            OutgoingEmailTemplate.PasswordChanged => new PasswordChangedNotification(email.UserId, email.ToAddress,
+                email.DisplayName, email.Link),
             _ => throw new NotSupportedException($"Unknown email template {email.Template}.")
         };
         var deliverable = channels.Where(c => c.CanDeliver(notification)).ToList();

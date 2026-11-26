@@ -1,8 +1,11 @@
 using ChatHub.Application.Features.Users;
 using ChatHub.Application.Features.Users.Commands;
 using ChatHub.Application.Features.Users.Queries;
+using ChatHub.WebAPI.Extensions;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ChatHub.WebAPI.Controllers;
 
@@ -17,6 +20,24 @@ public sealed class UsersController(ISender sender) : ApiController(sender)
     public async Task<IActionResult> UpdateMe(
         [FromBody] UpdateMyProfileCommand command, CancellationToken cancellationToken) =>
         ToNoContent(await Sender.Send(command, cancellationToken));
+
+    [HttpPut("users/me/username")]
+    public async Task<ActionResult<UsernameResponse>> ChangeUsername(
+        [FromBody] ChangeUsernameCommand command, CancellationToken cancellationToken) =>
+        ToOk(await Sender.Send(command, cancellationToken));
+
+    [HttpPut("users/me/privacy")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> UpdatePrivacy(
+        [FromBody] UpdatePrivacySettingsCommand command, CancellationToken cancellationToken) =>
+        ToNoContent(await Sender.Send(command, cancellationToken));
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.UsernameCheck)]
+    [HttpGet("users/username-availability")]
+    public async Task<ActionResult<UsernameAvailabilityResponse>> CheckUsernameAvailability(
+        [FromQuery] string? username, CancellationToken cancellationToken) =>
+        ToOk(await Sender.Send(new CheckUsernameAvailabilityQuery(username ?? string.Empty), cancellationToken));
 
     [HttpPut("users/me/email-preferences")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

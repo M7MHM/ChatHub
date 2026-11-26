@@ -35,7 +35,7 @@ public sealed class EmailVerificationTests
     [Fact]
     public void RequestEmailVerification_WithoutAnEmail_Throws()
     {
-        var user = UserProfile.Create("Bob", "hash", PhoneNumber.Create("01001234567"));
+        var user = UserProfile.Create(TestData.AnyUsername(), "Bob", "hash", PhoneNumber.Create("01001234567"));
 
         Should.Throw<DomainRuleViolationException>(() => user.RequestEmailVerification("raw", "hash", Now, Lifetime));
     }
@@ -87,7 +87,7 @@ public sealed class EmailVerificationTests
     public void VerifyEmail_TokenOfAnotherUser_Throws()
     {
         var bob = UserWithEmail();
-        var alice = UserProfile.Create("Alice", "hash", email: Email.Create("bob@example.com"));
+        var alice = UserProfile.Create(TestData.AnyUsername(), "Alice", "hash", email: Email.Create("bob@example.com"));
         var token = alice.RequestEmailVerification("raw", "hash", Now, Lifetime);
 
         Should.Throw<DomainRuleViolationException>(() => bob.VerifyEmail(token, Now.AddMinutes(1)));
@@ -166,7 +166,7 @@ public sealed class EmailVerificationTests
         Should.Throw<DomainRuleViolationException>(() => user.IssueUnsubscribeToken("raw", "hash"));
     }
 
-    private static UserProfile UserWithEmail() => UserProfile.Create("Bob", "hash", email: Email.Create("bob@example.com"));
+    private static UserProfile UserWithEmail() => UserProfile.Create(TestData.AnyUsername(), "Bob", "hash", email: Email.Create("bob@example.com"));
 
     private static UserProfile VerifiedUser()
     {

@@ -14,16 +14,19 @@ public sealed class UserProfileUpdatedEventHandler(
 {
     protected override async Task HandleAsync(UserProfileUpdatedEvent domainEvent, CancellationToken cancellationToken)
     {
-        var peerIds = await db.PeerIdsOfAsync(domainEvent.UserId, cancellationToken);
-        if (peerIds.Count == 0) return;
+        var peers = await db.PeersOfAsync(domainEvent.UserId, cancellationToken);
+        if (peers.Count == 0) return;
 
-        var summary = await db.UserProfiles
+        var user = await db.UserProfiles
             .AsNoTracking()
-            .Where(u => u.Id == domainEvent.UserId)
-            .Select(UserSummary.Projection)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (summary is null) return;
+            .FirstOrDefaultAsync(u => u.Id == domainEvent.UserId, cancellationToken);
+        if (user is null) return;
 
-        await signalR.SendToUsersAsync(peerIds, ChatEvents.ProfileUpdated, summary, cancellationToken);
+        foreach (var group in peers.GroupBy(p => p.SharesPresence && user.ShowLastSeen))
+        {
+            var summary = UserSummary.Create(user.Id, user.Username, user.DisplayName, user.AvatarUrl, user.IsOnline,
+                user.LastSeenUtc, user.IsDeleted, presenceVisible: group.Key);
+            await signalR.SendToUsersAsync(group.Select(p => p.UserId), ChatEvents.ProfileUpdated, summary, cancellationToken);
+        }
     }
 }

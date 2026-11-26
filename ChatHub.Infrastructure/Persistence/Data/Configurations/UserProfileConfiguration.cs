@@ -25,6 +25,11 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
             .HasConversion(new ValueConverter<Email?, string?>(e => e!.Value, s => Email.Create(s!)))
             .HasMaxLength(254);
 
+        builder.Property(u => u.Username)
+            .HasConversion(new ValueConverter<Username, string>(u => u.Value, s => Username.FromStorage(s)))
+            .IsRequired()
+            .HasMaxLength(Username.MaxLength);
+
         builder.Property(u => u.DisplayName).IsRequired().HasMaxLength(UserProfile.MaxDisplayNameLength);
         builder.Property(u => u.PasswordHash).IsRequired().HasMaxLength(512);
         builder.Property(u => u.SecurityStamp).IsRequired();
@@ -34,6 +39,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
 
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("\"IsDeleted\" = false");
+        builder.HasIndex(u => u.Username).IsUnique().HasFilter("\"IsDeleted\" = false");
         builder.HasIndex(u => u.UnsubscribeTokenHash).IsUnique().HasFilter("\"UnsubscribeTokenHash\" IS NOT NULL");
 
     }

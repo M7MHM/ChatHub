@@ -71,8 +71,8 @@ public sealed class AuthConcurrencyTests(DatabaseFixture database) : AppTestBase
     public async Task Register_ConcurrentWithTheSameEmail_OneSucceedsAndTheOtherGetsContactInUse()
     {
         var (a, b) = await RaceAsync(
-            () => SendAsync(null, new RegisterCommand("Twin A", "twin@example.com", null, Password)),
-            () => SendAsync(null, new RegisterCommand("Twin B", "TWIN@example.com", null, Password)));
+            () => SendAsync(null, new RegisterCommand("Twin A", TestUsernames.For("Twin A"), "twin@example.com", null, Password)),
+            () => SendAsync(null, new RegisterCommand("Twin B", TestUsernames.For("Twin B"), "TWIN@example.com", null, Password)));
 
         new[] { a, b }.Count(r => r.IsSuccess).ShouldBe(1);
         new[] { a, b }.Single(r => r.IsFailure).Error.ShouldBe(AuthErrors.ContactInUse);
@@ -82,8 +82,8 @@ public sealed class AuthConcurrencyTests(DatabaseFixture database) : AppTestBase
     public async Task Register_ConcurrentWithTheSamePhone_OneSucceedsAndTheOtherGetsContactInUse()
     {
         var (a, b) = await RaceAsync(
-            () => SendAsync(null, new RegisterCommand("Phone A", null, "+20 111 222 3333", Password)),
-            () => SendAsync(null, new RegisterCommand("Phone B", null, "+201112223333", Password)));
+            () => SendAsync(null, new RegisterCommand("Phone A", TestUsernames.For("Phone A"), null, "+20 111 222 3333", Password)),
+            () => SendAsync(null, new RegisterCommand("Phone B", TestUsernames.For("Phone B"), null, "+201112223333", Password)));
 
         new[] { a, b }.Count(r => r.IsSuccess).ShouldBe(1);
         new[] { a, b }.Single(r => r.IsFailure).Error.ShouldBe(AuthErrors.ContactInUse);
@@ -93,11 +93,11 @@ public sealed class AuthConcurrencyTests(DatabaseFixture database) : AppTestBase
     public async Task Register_ConcurrentWithTheSameContact_StoresOnlyOneUserPerContact()
     {
         await RaceAsync(
-            () => SendAsync(null, new RegisterCommand("Twin A", "twin@example.com", null, Password)),
-            () => SendAsync(null, new RegisterCommand("Twin B", "TWIN@example.com", null, Password)));
+            () => SendAsync(null, new RegisterCommand("Twin A", TestUsernames.For("Twin A"), "twin@example.com", null, Password)),
+            () => SendAsync(null, new RegisterCommand("Twin B", TestUsernames.For("Twin B"), "TWIN@example.com", null, Password)));
         await RaceAsync(
-            () => SendAsync(null, new RegisterCommand("Phone A", null, "+20 111 222 3333", Password)),
-            () => SendAsync(null, new RegisterCommand("Phone B", null, "+201112223333", Password)));
+            () => SendAsync(null, new RegisterCommand("Phone A", TestUsernames.For("Phone A"), null, "+20 111 222 3333", Password)),
+            () => SendAsync(null, new RegisterCommand("Phone B", TestUsernames.For("Phone B"), null, "+201112223333", Password)));
 
         var email = Email.Create("twin@example.com");
         var phone = PhoneNumber.Create("+201112223333");

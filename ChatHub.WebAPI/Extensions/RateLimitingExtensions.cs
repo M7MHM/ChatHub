@@ -10,6 +10,8 @@ public static class RateLimitPolicies
     public const string AuthSession = "auth-session";
     public const string EmailVerification = "email-verification";
     public const string EmailLink = "email-link";
+    public const string PasswordReset = "password-reset";
+    public const string UsernameCheck = "username-check";
 }
 
 public static class RateLimitingExtensions
@@ -19,6 +21,8 @@ public static class RateLimitingExtensions
     public const int DefaultAuthSessionPermitLimit = 60;
     public const int DefaultEmailVerificationPermitLimit = 5;
     public const int DefaultEmailLinkPermitLimit = 30;
+    public const int DefaultPasswordResetPermitLimit = 5;
+    public const int DefaultUsernameCheckPermitLimit = 30;
 
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
@@ -29,6 +33,8 @@ public static class RateLimitingExtensions
         var authSession = PermitLimit(section, "AuthSessionPermitLimit", DefaultAuthSessionPermitLimit);
         var emailVerification = PermitLimit(section, "EmailVerificationPermitLimit", DefaultEmailVerificationPermitLimit);
         var emailLink = PermitLimit(section, "EmailLinkPermitLimit", DefaultEmailLinkPermitLimit);
+        var passwordReset = PermitLimit(section, "PasswordResetPermitLimit", DefaultPasswordResetPermitLimit);
+        var usernameCheck = PermitLimit(section, "UsernameCheckPermitLimit", DefaultUsernameCheckPermitLimit);
 
         return services.AddRateLimiter(options =>
         {
@@ -38,6 +44,8 @@ public static class RateLimitingExtensions
             options.AddFixedWindowPerIp(RateLimitPolicies.AuthSession, authSession);
             options.AddFixedWindowPerIp(RateLimitPolicies.EmailVerification, emailVerification);
             options.AddFixedWindowPerIp(RateLimitPolicies.EmailLink, emailLink);
+            options.AddFixedWindowPerIp(RateLimitPolicies.PasswordReset, passwordReset);
+            options.AddFixedWindowPerIp(RateLimitPolicies.UsernameCheck, usernameCheck);
 
             options.OnRejected = async (context, _) =>
             {

@@ -10,7 +10,7 @@ public sealed class UserProfileTests
     [Fact]
     public void Create_WithEmail_CreatesAnOfflineUserWithASecurityStamp()
     {
-        var user = UserProfile.Create("  Alice  ", "hash", email: Email.Create("alice@example.com"));
+        var user = UserProfile.Create(TestData.AnyUsername(), "  Alice  ", "hash", email: Email.Create("alice@example.com"));
 
         user.DisplayName.ShouldBe("Alice");
         user.PasswordHash.ShouldBe("hash");
@@ -29,7 +29,7 @@ public sealed class UserProfileTests
     [Fact]
     public void Create_WithoutAnyContact_Throws()
     {
-        Should.Throw<DomainRuleViolationException>(() => UserProfile.Create("Alice", "hash"));
+        Should.Throw<DomainRuleViolationException>(() => UserProfile.Create(TestData.AnyUsername(), "Alice", "hash"));
     }
 
     [Theory]
@@ -38,7 +38,7 @@ public sealed class UserProfileTests
     public void Create_BlankDisplayName_Throws(string displayName)
     {
         Should.Throw<DomainRuleViolationException>(() =>
-            UserProfile.Create(displayName, "hash", PhoneNumber.Create("+201001234567")));
+            UserProfile.Create(TestData.AnyUsername(), displayName, "hash", PhoneNumber.Create("+201001234567")));
     }
 
     [Fact]
@@ -47,14 +47,14 @@ public sealed class UserProfileTests
         var displayName = new string('x', UserProfile.MaxDisplayNameLength + 1);
 
         Should.Throw<DomainRuleViolationException>(() =>
-            UserProfile.Create(displayName, "hash", PhoneNumber.Create("+201001234567")));
+            UserProfile.Create(TestData.AnyUsername(), displayName, "hash", PhoneNumber.Create("+201001234567")));
     }
 
     [Fact]
     public void Create_BlankPasswordHash_Throws()
     {
         Should.Throw<DomainRuleViolationException>(() =>
-            UserProfile.Create("Alice", " ", PhoneNumber.Create("+201001234567")));
+            UserProfile.Create(TestData.AnyUsername(), "Alice", " ", PhoneNumber.Create("+201001234567")));
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public sealed class UserProfileTests
     [Fact]
     public void ChangePhoneNumber_RemovingTheOnlyContact_Throws()
     {
-        var user = UserProfile.Create("Bob", "hash", PhoneNumber.Create("+201001234567"));
+        var user = UserProfile.Create(TestData.AnyUsername(), "Bob", "hash", PhoneNumber.Create("+201001234567"));
 
         Should.Throw<DomainRuleViolationException>(() => user.ChangePhoneNumber(null));
     }
@@ -163,7 +163,7 @@ public sealed class UserProfileTests
     [Fact]
     public void ChangePhoneNumber_RemovedWhileAnEmailRemains_Succeeds()
     {
-        var user = UserProfile.Create("Bob", "hash", PhoneNumber.Create("+201001234567"), Email.Create("bob@example.com"));
+        var user = UserProfile.Create(TestData.AnyUsername(), "Bob", "hash", PhoneNumber.Create("+201001234567"), Email.Create("bob@example.com"));
 
         user.ChangePhoneNumber(null);
 
@@ -258,7 +258,7 @@ public sealed class UserProfileTests
     [Fact]
     public void Register_CreatesTheUserAndRaisesUserRegistered()
     {
-        var user = UserProfile.Register("  Alice  ", "hash", email: Email.Create("alice@example.com"));
+        var user = UserProfile.Register(TestData.AnyUsername(), "  Alice  ", "hash", email: Email.Create("alice@example.com"));
 
         user.DisplayName.ShouldBe("Alice");
         user.Email.ShouldBe(Email.Create("alice@example.com"));
@@ -268,6 +268,6 @@ public sealed class UserProfileTests
     [Fact]
     public void Register_WithoutAnyContact_Throws()
     {
-        Should.Throw<DomainRuleViolationException>(() => UserProfile.Register("Alice", "hash"));
+        Should.Throw<DomainRuleViolationException>(() => UserProfile.Register(TestData.AnyUsername(), "Alice", "hash"));
     }
 }

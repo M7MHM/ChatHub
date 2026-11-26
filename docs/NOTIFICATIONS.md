@@ -1,6 +1,6 @@
 # ChatHub notification service
 
-`ChatHub.Notifications` is a separate worker that consumes ChatHub's integration events from RabbitMQ (see [MESSAGING.md](MESSAGING.md)) and sends **email digests** to people who did not read their messages, like WhatsApp's "you have unread messages" email. It also sends the **transactional** email that confirms a new address. Email is the only channel today; the code is built so Web Push can be added as a second channel.
+`ChatHub.Notifications` is a separate worker that consumes ChatHub's integration events from RabbitMQ (see [MESSAGING.md](MESSAGING.md)) and sends **email digests** to people who did not read their messages, like WhatsApp's "you have unread messages" email. It also sends the **transactional** emails: the one that confirms a new address, the password reset link, and a notice after a password was reset. Email is the only channel today; the code is built so Web Push can be added as a second channel.
 
 It references only `ChatHub.Contracts`. It never reads the ChatHub database: everything it knows comes from events, and it keeps its own state in its own database, `chathub_notifications`.
 
@@ -13,7 +13,7 @@ The boundaries that matter are kept as folders and interfaces inside one project
 - `Persistence`: the EF Core model, migrations and retention cleanup.
 - `Messaging`: the RabbitMQ topology, the consumer, the envelope reader and the inbox processor.
 - `Digests`: the rules (handlers, dispatcher, settings).
-- `Transactional`: emails that are not digests, one per event (today: address verification), queued in `OutgoingEmails`.
+- `Transactional`: emails that are not digests, one per event (today: address verification, password reset, password changed), queued in `OutgoingEmails`.
 - `Sending`: the sending limits (`SendQuota`) and the suppressed domains (`EmailSuppression`).
 - `Channels`: `INotificationChannel`, the `Notification` base record and `Channels/Email`.
 - `Health`: health checks.
@@ -42,7 +42,7 @@ flowchart LR
 2. `EventConsumer` receives it from `chathub.notifications`, validates it, and hands it to `IntegrationEventProcessor`.
 3. The processor inserts the event's `MessageId` into `ProcessedMessages` and applies the handler **in the same transaction**. A redelivered message hits the primary key and changes nothing.
 4. `MessageSent` creates or extends a pending digest per recipient. `ConversationRead`, `MessageDeleted`, `MemberLeft`, `MemberKicked` and a mute shrink or cancel it; `MessageEdited` updates its preview; `UserStatusChanged` postpones it while the recipient is online. User events maintain the recipient read model (address, verified flag, email preference, unsubscribe link).
-5. `EmailVerificationRequested` is queued in `OutgoingEmails` in the same transaction (see [Email verification](#email-verification)).
+5. `EmailVerificationRequested`, `PasswordResetRequested` and `PasswordResetCompleted` are queued in `OutgoingEmails` in the same transaction (see [Email verification](#email-verification) and [Password reset](#password-reset)).
 6. `DigestDispatcher` checks the [sending limits](#sending-limits), sends the queued transactional emails first, then claims the digests that are due, re-checks them, sends them through the channels, and records the result.
 
 ## Digest rules
@@ -76,7 +76,7 @@ flowchart LR
 | `SentNotifications` | `Id` | Log of what was sent: user, conversation (null for transactional emails), channel, `Kind` (`Transactional` or `Digest`), message count, time. The sending limits count this table, so they survive restarts. |
 | `MessageSnapshots` | `ChatMessageId` | One row per chat message that reached a digest, edit or delete: `SentAtUtc`, `SenderName`, `Preview` (newest edit wins), `EditedAtUtc`, `DeletedAtUtc` (tombstone), `RecordedAtUtc`. Shared by every recipient, so an edit or delete is one row, not one per recipient. |
 | `RecipientPresence` | `UserId` | `IsOnline` and `ChangedAtUtc` of the newest `UserStatusChanged`. Separate from `Recipients` so presence can arrive before the user's first profile event. |
-| `OutgoingEmails` | `Id` | Transactional emails waiting to be sent: template (`EmailVerification`), address, name, link, expiry, `CreatedAtUtc`, and delivery state `LockedUntilUtc`, `Attempts`, `LastError`, `FailedAtUtc`. Deleted when sent. |
+| `OutgoingEmails` | `Id` | Transactional emails waiting to be sent: template (`EmailVerification`, `PasswordReset`, `PasswordChanged`, stored as text, so new templates need no migration), address, name, link, expiry, `CreatedAtUtc`, and delivery state `LockedUntilUtc`, `Attempts`, `LastError`, `FailedAtUtc`. Deleted when sent. |
 
 Two additions to the suggested schema:
 
@@ -92,7 +92,7 @@ The service declares everything it uses at startup (all durable, classic queues)
 | Name | Kind | Details |
 |---|---|---|
 | `chathub.events` | topic exchange | Declared by the API too, with the same arguments. |
-| `chathub.notifications` | queue | Bound to `chathub.events` with the twelve routing keys in [Events we publish](#events-we-publish-and-why) (`NotificationTopology.RoutingKeys`). Dead-letters to `chathub.events.dlx` with routing key `chathub.notifications.dlq`. |
+| `chathub.notifications` | queue | Bound to `chathub.events` with the fourteen routing keys in [Events we publish](#events-we-publish-and-why) (`NotificationTopology.RoutingKeys`). Dead-letters to `chathub.events.dlx` with routing key `chathub.notifications.dlq`. |
 | `chathub.events.dlx` | direct exchange | Routes `chathub.notifications.dlq` to the DLQ and `chathub.notifications` back to the main queue. |
 | `chathub.notifications.retry` | queue, no consumers | Holds retries until their per-message TTL expires, then dead-letters them to `chathub.events.dlx` with routing key `chathub.notifications`, i.e. back to the main queue. |
 | `chathub.notifications.dlq` | queue | Messages that will not be processed. |
@@ -157,7 +157,7 @@ public interface INotificationChannel
 }
 ```
 
-`EmailChannel` (MailKit) is the only implementation. It renders `DigestNotification` with `DigestEmailTemplate` and `EmailVerificationNotification` with `VerificationEmailTemplate`, and marks every email with `X-ChatHub-Kind: Transactional|Digest`. To add Web Push:
+`EmailChannel` (MailKit) is the only implementation. It renders `DigestNotification` with `DigestEmailTemplate`, `EmailVerificationNotification` with `VerificationEmailTemplate`, `PasswordResetNotification` with `PasswordResetEmailTemplate` and `PasswordChangedNotification` with `PasswordChangedEmailTemplate`, and marks every email with `X-ChatHub-Kind: Transactional|Digest`. To add Web Push:
 
 1. Store subscriptions (a `PushSubscriptions` table fed by a new event or an endpoint on this service).
 2. Implement `PushChannel` (`CanDeliverTo` = has a subscription; `CanDeliver` = digests only, never the email verification; `SendAsync` renders its own short title and body from the same `DigestNotification`).
@@ -187,9 +187,9 @@ user opens {PublicApiBaseUrl}/api/auth/verify-email?token=…  ─► HTML page 
 
 ### Transactional vs digest emails
 
-| | Transactional (verification) | Digest |
+| | Transactional (verification, password reset, password changed) | Digest |
 |---|---|---|
-| Trigger | `EmailVerificationRequested` | Unread messages, after the delay and cooldown |
+| Trigger | `EmailVerificationRequested`, `PasswordResetRequested`, `PasswordResetCompleted` | Unread messages, after the delay and cooldown |
 | When | Queued when the event is processed, sent by the next dispatcher cycle (within `PollIntervalMilliseconds`), before any digest | When due, by the dispatcher |
 | Address | The one in the event, even if no `Recipients` row exists yet (registration and verification events can arrive in any order) | `Recipients.Email`, verified only |
 | Preference | Always sent, also with email notifications off | Not sent when off |
@@ -199,6 +199,31 @@ user opens {PublicApiBaseUrl}/api/auth/verify-email?token=…  ─► HTML page 
 | Log | `SentNotifications` with `Kind = Transactional`, no conversation | `Kind = Digest` |
 
 The consumer only queues the email; it never talks to SMTP inside the inbox transaction. The dispatcher claims a queued email with a lease, sends it, then in one transaction deletes the row (only if it still holds the lease) and writes `SentNotifications`. If the process dies between the SMTP send and that commit, the lease expires and the email is sent again (at-least-once, like digests), but the second completion is the only one that commits: a completion whose lease was lost deletes nothing and records nothing. Expired links are dropped at send time.
+
+## Password reset
+
+The API reuses the verification machinery (random token, SHA-256 hash in the database, single use, `xmin` concurrency token) with a shorter lifetime, and the link opens the web client instead of an API page.
+
+```text
+POST /api/auth/forgot-password { email }           always 202, same body, at least PasswordReset:MinimumResponseMilliseconds
+  └─ only for an active account whose email is VERIFIED, at most PasswordReset:MaxRequestsPerHour (3) per account:
+       one transaction: older unused reset tokens expire now + PasswordResetTokens row (SHA-256 of the token)
+                        + outbox: PasswordResetRequested(resetLink, expiresAtUtc)
+worker: PasswordResetRequested ─► OutgoingEmails ─► "Reset your ChatHub password" (link, expiry, "if this wasn't you, ignore this email")
+user opens {App:FrontendBaseUrl}/reset-password?token=…   (a page of the web client; the API has no GET page for it)
+  └─ the page posts POST /api/auth/reset-password { token, newPassword } ─► 204
+       one transaction: new password hash, security stamp rotated, token used, other unused reset tokens expired,
+                        every refresh token revoked + outbox: PasswordResetCompleted
+       then every hub connection of the user is closed on every replica (like change-password)
+worker: PasswordResetCompleted ─► OutgoingEmails ─► "Your ChatHub password was changed" (link to {Notifications:AppBaseUrl}/forgot-password)
+```
+
+- **No user enumeration.** `forgot-password` answers `202 { "message": "If an account with this verified email address exists, we sent it a link to reset the password." }` for unknown addresses, unverified addresses, phone-only and deleted accounts, and when the per-account limit is reached. The handler pads every answer to `PasswordReset:MinimumResponseMilliseconds` (300 ms by default) with the `TimeProvider`, so the extra database work of a real request does not show in the timing. Only a malformed address gets a 400, which says nothing about accounts.
+- **Throttling.** Per account: `PasswordReset:MaxRequestsPerHour` (3), counted from the stored tokens' `CreatedAtUtc`; over the limit, nothing is sent and the answer is unchanged. Per IP: the `password-reset` rate-limit policy (`RateLimiting:PasswordResetPermitLimit`, 5 a minute). `reset-password` shares the `auth-strict` policy with login and registration (10 a minute).
+- **Tokens** (`PasswordResetTokens`: `UserId`, `Email`, `TokenHash`, `CreatedAtUtc`, `ExpiresAtUtc`, `UsedAtUtc`): 32 random bytes, base64url, valid `PasswordReset:TokenLifetimeMinutes` (30), single use. A newer request expires the older unused tokens. The row keeps the address the link was sent to: after an email change the old link is invalid.
+- **Errors** of `reset-password` (400 problems): `Auth.InvalidResetToken` (unknown token, deleted account, or the address changed), `Auth.ResetTokenExpired` (expired or replaced by a newer link), `Auth.ResetTokenUsed` (used, also the loser of two simultaneous submissions), and the usual validation errors for `newPassword` (same rules as registration).
+- **Worker rules.** Both events are queued like the verification email: to the address in the event, also with email notifications off, never for deleted users, sent before digests under the same sending limits, dropped for suppressed domains. A reset email whose link expired before it could be sent is dropped. The "password changed" notice is dropped if it could not be sent within 24 hours of the change (`PasswordResetHandler.PasswordChangedNoticeLifetime`).
+- **Frontend contract.** The client hosts two pages: `/forgot-password` (a form that posts the address and always shows the same confirmation) and `/reset-password` (reads `?token=`, asks for the new password, posts both, then sends the user to sign in). `App:FrontendBaseUrl` (API) and `Notifications:AppBaseUrl` (worker) must both point at the client.
 
 ## Preferences
 
@@ -233,7 +258,9 @@ Recipients without a link yet (users created before this change, until the backf
 | `conversation.mute-changed` | Muting drops the pending digest at once; without it, a digest started before the mute would still go out. |
 | `user.status-changed` | Emails are for people who are away; online recipients are held. |
 | `user.registered`, `user.profile-updated`, `user.deleted` | The recipient read model: address, name, verified flag, preference, unsubscribe link, deletion. |
-| `user.email-verification-requested` | The only transactional email. |
+| `user.email-verification-requested` | The address confirmation email. |
+| `user.password-reset-requested` | The password reset email with the link to the frontend. |
+| `user.password-reset-completed` | The "your password was changed" notice. |
 
 ### Domain events we intentionally do not publish
 
@@ -307,7 +334,7 @@ docker-compose maps them from `.env`:
 - `NOTIFICATIONS_ENVIRONMENT` (default `Production`): the worker's `ASPNETCORE_ENVIRONMENT`, separate from the API's
 - `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, shared with the API
 
-On the API side (`docker-compose.yml` passes them to every replica): `App:PublicApiBaseUrl` (`PUBLIC_API_BASE_URL`, default `http://localhost:8080`, the base of every link in emails; it must be the public https origin in production), `EmailVerification:TokenLifetimeHours` (`EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS`, 24) and `EmailVerification:MaxRequestsPerHour` (`EMAIL_VERIFICATION_MAX_REQUESTS_PER_HOUR`, 3), and the per-IP limits `RateLimiting:EmailVerificationPermitLimit` (5) and `RateLimiting:EmailLinkPermitLimit` (30). All are validated at startup. nginx logs `$uri` without the query string, so the tokens in links never reach its access log.
+On the API side (`docker-compose.yml` passes them to every replica): `App:PublicApiBaseUrl` (`PUBLIC_API_BASE_URL`, default `http://localhost:8080`, the base of every link in emails; it must be the public https origin in production), `EmailVerification:TokenLifetimeHours` (`EMAIL_VERIFICATION_TOKEN_LIFETIME_HOURS`, 24) and `EmailVerification:MaxRequestsPerHour` (`EMAIL_VERIFICATION_MAX_REQUESTS_PER_HOUR`, 3), `App:FrontendBaseUrl` (`FRONTEND_BASE_URL`, default `http://localhost:3000`; `FRONTEND_ORIGIN` in production; the base of password reset links), `PasswordReset:TokenLifetimeMinutes` (`PASSWORD_RESET_TOKEN_LIFETIME_MINUTES`, 30), `PasswordReset:MaxRequestsPerHour` (`PASSWORD_RESET_MAX_REQUESTS_PER_HOUR`, 3) and `PasswordReset:MinimumResponseMilliseconds` (300), and the per-IP limits `RateLimiting:EmailVerificationPermitLimit` (5), `RateLimiting:EmailLinkPermitLimit` (30) and `RateLimiting:PasswordResetPermitLimit` (5). All are validated at startup. nginx logs `$uri` without the query string, so the tokens in links never reach its access log.
 
 ## Running it
 
@@ -398,7 +425,8 @@ SELECT "Channel", count(*), sum("MessageCount") FROM "SentNotifications" WHERE "
 - `DispatcherTests`: backoff and giving up, recovery, two dispatchers without double sends, lease expiry, a message arriving while sending.
 - `RecipientTests`: out-of-order and post-deletion user events, verification and preference ordering, unsubscribe link ordering, deletion clearing them.
 - `ConsumerTests`: the real consumer against RabbitMQ: ack, duplicate delivery, four kinds of poison message to the DLQ, retry queue then success, DLQ after max attempts.
-- `EmailChannelTests`: real SMTP into Mailpit asserted through its HTTP API (the verification email; a digest's `List-Unsubscribe` and `List-Unsubscribe-Post` headers and body link), plus template tests. Connection reuse goes through `CountingTcpProxy`, a TCP forwarder in front of Mailpit that counts connections and can drop them: a batch uses one connection, a dropped connection is replaced and the email still arrives, and an idle connection is closed and replaced (with `FakeTimeProvider`).
+- `PasswordResetEmailTests`: the reset email queued and sent as `Transactional`, before any user event and with notifications off, duplicates, deleted users and expired links (when queued and when sent), suppressed domains, priority over a due digest when only one email fits in the minute, the "password changed" notice with the forgot-password link and its 24-hour cut-off, routing keys and poison payloads.
+- `EmailChannelTests`: real SMTP into Mailpit asserted through its HTTP API (the verification email; the password reset email with its link, expiry and "ignore" hint; the "password changed" notice; a digest's `List-Unsubscribe` and `List-Unsubscribe-Post` headers and body link), plus template tests. Connection reuse goes through `CountingTcpProxy`, a TCP forwarder in front of Mailpit that counts connections and can drop them: a batch uses one connection, a dropped connection is replaced and the email still arrives, and an idle connection is closed and replaced (with `FakeTimeProvider`).
 - `HostTests`: `/health/ready` JSON on the real host, startup validation, retention cleanup (including snapshots and failed emails).
 
-The backfill is tested in `Application.IntegrationTests/Features/SeederTests`. The API side lives in `Application.IntegrationTests/Features/EmailVerificationTests`, `EmailPreferenceTests`, `OutboxTests` and `OutboxPublisherTests`, `Api.IntegrationTests/EmailTests` (endpoints and HTML pages) and `Domain.UnitTests/EmailVerificationTests`.
+The backfill is tested in `Application.IntegrationTests/Features/SeederTests`. The API side lives in `Application.IntegrationTests/Features/EmailVerificationTests`, `EmailPreferenceTests`, `OutboxTests` and `OutboxPublisherTests`, `Api.IntegrationTests/EmailTests` (endpoints and HTML pages) and `Domain.UnitTests/EmailVerificationTests`. Password reset on the API side: `Application.IntegrationTests/Features/PasswordResetTests` (including `PasswordResetTimingTests`), `Api.IntegrationTests/PasswordResetTests` and `Domain.UnitTests/PasswordResetTests`.

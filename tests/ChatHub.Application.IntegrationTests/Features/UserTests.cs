@@ -255,7 +255,7 @@ public sealed class UserTests(DatabaseFixture database) : AppTestBase(database)
 
         var summary = UserSummary.From(stored);
 
-        summary.ShouldBe(new UserSummary(owen, UserSummary.DeletedDisplayName, null, false, null));
+        summary.ShouldBe(new UserSummary(owen, null, UserSummary.DeletedDisplayName, null, false, null));
     }
 
     private async Task<(Guid Alice, Guid Bob, Guid Carol, Guid Dave)> CreateFourUsersAsync() =>

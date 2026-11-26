@@ -10,7 +10,7 @@ public sealed class AuthTests(ApiFixture fixture) : ApiTestBase(fixture)
     public async Task Register_ValidEmailUser_Returns201WithLocationAndTokenPair()
     {
         var response = await Api.PostAsync("/api/auth/register",
-            new { displayName = "Alice", email = "alice@example.com", password = Password });
+            new { displayName = "Alice", username = TestUsernames.For("Alice"), email = "alice@example.com", password = Password });
 
         var userId = response.Json.P("user").G("id");
         response.Status.ShouldBe(201);
@@ -23,7 +23,7 @@ public sealed class AuthTests(ApiFixture fixture) : ApiTestBase(fixture)
     public async Task Register_ValidPhoneUser_Returns201()
     {
         var response = await Api.PostAsync("/api/auth/register",
-            new { displayName = "Bob", phoneNumber = "+20 100 123 4567", password = Password });
+            new { displayName = "Bob", username = TestUsernames.For("Bob"), phoneNumber = "+20 100 123 4567", password = Password });
 
         response.Status.ShouldBe(201);
         response.Json.P("user").G("id").ShouldNotBe(Guid.Empty);
@@ -33,7 +33,7 @@ public sealed class AuthTests(ApiFixture fixture) : ApiTestBase(fixture)
     public async Task Register_LandlinePhone_Returns400WithTheMobileNumberMessage()
     {
         var response = await Api.PostAsync("/api/auth/register",
-            new { displayName = "Bob", phoneNumber = "0223456789", password = Password });
+            new { displayName = "Bob", username = TestUsernames.For("Bob"), phoneNumber = "0223456789", password = Password });
 
         response.Status.ShouldBe(400);
         response.HasError("PhoneNumber").ShouldBeTrue();
@@ -46,7 +46,7 @@ public sealed class AuthTests(ApiFixture fixture) : ApiTestBase(fixture)
         await RegisterAsync("Alice", "alice@example.com");
 
         var response = await Api.PostAsync("/api/auth/register",
-            new { displayName = "X", email = "ALICE@example.com", password = Password });
+            new { displayName = "X", username = TestUsernames.For("X"), email = "ALICE@example.com", password = Password });
 
         response.Status.ShouldBe(409);
         response.Code.ShouldBe("Auth.ContactInUse");

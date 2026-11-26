@@ -23,6 +23,7 @@ public sealed class GetUserProfileQueryHandler(IApplicationDbContext db, ICurren
     public async Task<Result<UserProfileResponse>> Handle(GetUserProfileQuery request, CancellationToken cancellationToken)
     {
         var me = currentUser.GetRequiredUserId();
+        var iSharePresence = await db.SharesPresenceAsync(me, cancellationToken);
 
         var profile = await db.UserProfiles
             .AsNoTracking()
@@ -30,11 +31,13 @@ public sealed class GetUserProfileQueryHandler(IApplicationDbContext db, ICurren
             .Select(u => new
             {
                 u.Id,
+                u.Username,
                 u.DisplayName,
                 u.AvatarUrl,
                 u.Bio,
                 u.IsOnline,
                 u.LastSeenUtc,
+                u.ShowLastSeen,
                 IsBlockedByMe = db.UserBlocks.Any(b => b.BlockerId == me && b.BlockedId == u.Id),
                 HasBlockedMe = db.UserBlocks.Any(b => b.BlockerId == u.Id && b.BlockedId == me)
             })
@@ -42,19 +45,22 @@ public sealed class GetUserProfileQueryHandler(IApplicationDbContext db, ICurren
 
         if (profile is null) return UserErrors.NotFound;
 
+        var presenceVisible = profile.Id == me || (!profile.HasBlockedMe && profile.ShowLastSeen && iSharePresence);
         return new UserProfileResponse(
             profile.Id,
+            profile.Username.Value,
             profile.DisplayName,
             profile.AvatarUrl,
             profile.Bio,
-            !profile.HasBlockedMe && profile.IsOnline,
-            profile.HasBlockedMe ? null : profile.LastSeenUtc,
+            presenceVisible && profile.IsOnline,
+            presenceVisible ? profile.LastSeenUtc : null,
             profile.IsBlockedByMe);
     }
 }
 
 public sealed record UserProfileResponse(
     Guid Id,
+    string Username,
     string DisplayName,
     string? AvatarUrl,
     string? Bio,

@@ -12,7 +12,8 @@ public sealed class OutboxMessage
     public const string RedactedPayload = "{}";
 
     public static readonly string[] RedactedOncePublished =
-        [nameof(EmailVerificationRequested), nameof(UserRegistered), nameof(UserProfileUpdated)];
+        [nameof(EmailVerificationRequested), nameof(UserRegistered), nameof(UserProfileUpdated),
+            nameof(PasswordResetRequested), nameof(PasswordResetCompleted)];
 
     private OutboxMessage() { }
 

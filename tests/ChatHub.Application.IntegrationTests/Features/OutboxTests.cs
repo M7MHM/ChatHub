@@ -384,7 +384,8 @@ public sealed class OutboxTests(DatabaseFixture database) : AppTestBase(database
 
         await UseDbAsync(async db =>
         {
-            db.UserProfiles.Add(UserProfile.Register("Ann Again", "hash", email: Email.Create("ann@example.com")));
+            db.UserProfiles.Add(UserProfile.Register(Username.Create(TestUsernames.For("Ann Again")), "Ann Again", "hash",
+                email: Email.Create("ann@example.com")));
             await Should.ThrowAsync<DbUpdateException>(() => db.SaveChangesAsync());
         });
 

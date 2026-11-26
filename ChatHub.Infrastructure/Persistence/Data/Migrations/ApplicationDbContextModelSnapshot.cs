@@ -263,6 +263,49 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.ToTable("Messages", (string)null);
                 });
 
+            modelBuilder.Entity("ChatHub.Domain.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime?>("UsedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "CreatedAtUtc");
+
+                    b.ToTable("PasswordResetTokens", (string)null);
+                });
+
             modelBuilder.Entity("ChatHub.Domain.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -440,6 +483,9 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.Property<Guid>("SecurityStamp")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("ShowLastSeen")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("UnsubscribeTokenHash")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
@@ -449,6 +495,14 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
 
                     b.Property<Guid?>("UpdatedById")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("UsernameChangedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -463,6 +517,10 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.HasIndex("UnsubscribeTokenHash")
                         .IsUnique()
                         .HasFilter("\"UnsubscribeTokenHash\" IS NOT NULL");
+
+                    b.HasIndex("Username")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("UserProfiles", (string)null);
                 });
@@ -567,6 +625,15 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.Navigation("ParentMessage");
 
                     b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("ChatHub.Domain.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("ChatHub.Domain.Entities.UserProfile", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ChatHub.Domain.Entities.RefreshToken", b =>

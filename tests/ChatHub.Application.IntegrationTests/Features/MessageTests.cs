@@ -329,7 +329,7 @@ public sealed class MessageTests(DatabaseFixture database) : AppTestBase(databas
         (await SendAsync(crew.Rex, new DeleteMyAccountCommand())).ShouldSucceed();
 
         var all = await AllMessagesAsync(crew.Paula, crew.Group);
-        all.Single(m => m.Id == voice.Id).Sender.ShouldBe(new UserSummary(crew.Rex, UserSummary.DeletedDisplayName, null, false, null));
+        all.Single(m => m.Id == voice.Id).Sender.ShouldBe(new UserSummary(crew.Rex, null, UserSummary.DeletedDisplayName, null, false, null));
         var replyTo = all.Single(m => m.Id == reply.Id).ReplyTo.ShouldNotBeNull();
         replyTo.SenderName.ShouldBe(UserSummary.DeletedDisplayName);
         replyTo.Text.ShouldBe("[Voice]");

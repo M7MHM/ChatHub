@@ -19,8 +19,9 @@ internal static class MessageProjection
     public static readonly Expression<Func<MessageView, MessageResponse>> Response = v => new MessageResponse(
         v.Message.Id,
         v.Message.ConversationId,
-        UserSummary.Create(v.Message.Sender.Id, v.Message.Sender.DisplayName, v.Message.Sender.AvatarUrl,
-            v.Message.Sender.IsOnline, v.Message.Sender.LastSeenUtc, v.Message.Sender.IsDeleted),
+        UserSummary.Create(v.Message.Sender.Id, v.Message.Sender.Username, v.Message.Sender.DisplayName,
+            v.Message.Sender.AvatarUrl, v.Message.Sender.IsOnline, v.Message.Sender.LastSeenUtc, v.Message.Sender.IsDeleted,
+            presenceVisible: false),
         v.Message.Type,
         v.Message.IsDeleted ? null : v.Message.Content,
         v.Message.IsDeleted || v.Message.Attachment == null

@@ -15,14 +15,15 @@ public sealed class GetMyBlockedUsersQueryHandler(IApplicationDbContext db, ICur
         GetMyBlockedUsersQuery request, CancellationToken cancellationToken)
     {
         var me = currentUser.GetRequiredUserId();
+        var iSharePresence = await db.SharesPresenceAsync(me, cancellationToken);
 
         var blocked = await db.UserBlocks
             .AsNoTracking()
             .Where(b => b.BlockerId == me)
             .OrderByDescending(b => b.BlockedAtUtc)
             .Select(b => new BlockedUserResponse(
-                UserSummary.Create(b.Blocked.Id, b.Blocked.DisplayName, b.Blocked.AvatarUrl, b.Blocked.IsOnline,
-                    b.Blocked.LastSeenUtc, b.Blocked.IsDeleted),
+                UserSummary.Create(b.Blocked.Id, b.Blocked.Username, b.Blocked.DisplayName, b.Blocked.AvatarUrl,
+                    b.Blocked.IsOnline, b.Blocked.LastSeenUtc, b.Blocked.IsDeleted, b.Blocked.ShowLastSeen && iSharePresence),
                 b.BlockedAtUtc))
             .ToListAsync(cancellationToken);
 

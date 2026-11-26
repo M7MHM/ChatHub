@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Common.Validation;
 using ChatHub.Domain.Entities;
+using ChatHub.Domain.ValueObjects;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -59,8 +60,11 @@ public sealed class LoginCommandHandler(
         }
 
         var phoneNumber = ContactParser.TryParsePhoneNumber(identifier);
-        return phoneNumber is null
-            ? null
-            : await users.FirstOrDefaultAsync(u => u.PhoneNumber == phoneNumber, cancellationToken);
+        if (phoneNumber is not null)
+            return await users.FirstOrDefaultAsync(u => u.PhoneNumber == phoneNumber, cancellationToken);
+
+        return Username.TryCreate(identifier, out var username, out _)
+            ? await users.FirstOrDefaultAsync(u => u.Username == username, cancellationToken)
+            : null;
     }
 }

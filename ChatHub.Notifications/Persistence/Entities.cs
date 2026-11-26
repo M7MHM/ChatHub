@@ -112,7 +112,9 @@ public sealed class RecipientPresence
 
 public enum OutgoingEmailTemplate
 {
-    EmailVerification
+    EmailVerification,
+    PasswordReset,
+    PasswordChanged
 }
 
 public sealed class OutgoingEmail

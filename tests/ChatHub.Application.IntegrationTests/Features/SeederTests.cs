@@ -110,6 +110,19 @@ public sealed class SeederTests(DatabaseFixture database) : AppTestBase(database
     }
 
     [Fact]
+    public async Task Seed_SeededUsers_GetNumberedUsernamesTheyCanSignInWith()
+    {
+        await SeedAsync();
+
+        var usernames = await QueryDbAsync(db => db.UserProfiles.Select(u => u.Username).ToListAsync());
+        var first = await LoginAsync("seed_0001", SeedOptions.Password);
+
+        usernames.Select(u => u.Value).ShouldBe(Enumerable.Range(1, Small.Users).Select(SeedOptions.UsernameOf), ignoreOrder: true);
+        first.User.Username.ShouldBe("seed_0001");
+        (await LoginAsync(SeedOptions.EmailOf(1), SeedOptions.Password)).User.Id.ShouldBe(first.User.Id);
+    }
+
+    [Fact]
     public async Task Seed_SeededUsers_HaveAVerifiedEmailAndEmailNotificationsOn()
     {
         await SeedAsync();

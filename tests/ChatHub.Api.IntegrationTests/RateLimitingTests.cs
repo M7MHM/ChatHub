@@ -48,7 +48,7 @@ public sealed class RateLimitingTests(ApiFixture fixture) : ApiTestBase(fixture)
         await RepeatAsync(AuthStrictLimit + 1, () => LoginNobodyAsync(limitedClient));
 
         var response = await NewClient().PostAsync("/api/auth/register",
-            new { displayName = "Carol", email = "carol@example.com", password = Password });
+            new { displayName = "Carol", username = TestUsernames.For("Carol"), email = "carol@example.com", password = Password });
 
         response.Status.ShouldBe(201);
     }
@@ -88,6 +88,32 @@ public sealed class RateLimitingTests(ApiFixture fixture) : ApiTestBase(fixture)
 
         statuses.Take(AuthStrictLimit).ShouldAllBe(status => status == 400);
         statuses[AuthStrictLimit].ShouldBe(429);
+    }
+
+    [Fact]
+    public async Task ForgotPassword_MoreThanFivePerMinuteFromOneAddress_Returns429()
+    {
+        var statuses = await InOneWindowAsync(() =>
+        {
+            var client = NewClient();
+            return RepeatAsync(6, () => client.PostAsync("/api/auth/forgot-password", new { email = "nobody@example.com" }));
+        });
+
+        statuses.Take(5).ShouldAllBe(status => status == 202);
+        statuses[5].ShouldBe(429);
+    }
+
+    [Fact]
+    public async Task UsernameAvailability_MoreThanThirtyPerMinuteFromOneAddress_Returns429()
+    {
+        var statuses = await InOneWindowAsync(() =>
+        {
+            var client = NewClient();
+            return RepeatAsync(31, () => client.GetAsync("/api/users/username-availability?username=someone"));
+        });
+
+        statuses.Take(30).ShouldAllBe(status => status == 200);
+        statuses[30].ShouldBe(429);
     }
 
     [Fact]

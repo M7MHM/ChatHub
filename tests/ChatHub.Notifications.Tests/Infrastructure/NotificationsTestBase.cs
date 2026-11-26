@@ -165,6 +165,10 @@ public sealed class FakeChannel : INotificationChannel
 
     public IReadOnlyList<EmailVerificationNotification> Verifications => [.. _sent.OfType<EmailVerificationNotification>()];
 
+    public IReadOnlyList<PasswordResetNotification> PasswordResets => [.. _sent.OfType<PasswordResetNotification>()];
+
+    public IReadOnlyList<PasswordChangedNotification> PasswordChanges => [.. _sent.OfType<PasswordChangedNotification>()];
+
     public void FailNext(int times) => Interlocked.Exchange(ref _failuresLeft, times);
 
     public bool CanDeliverTo(Recipient recipient) => recipient.CanReceiveEmailDigests;
@@ -172,7 +176,7 @@ public sealed class FakeChannel : INotificationChannel
     public bool CanDeliver(Notification notification) => notification switch
     {
         DigestNotification digest => CanDeliverTo(digest.Recipient),
-        EmailVerificationNotification => true,
+        EmailVerificationNotification or PasswordResetNotification or PasswordChangedNotification => true,
         _ => false
     };
 

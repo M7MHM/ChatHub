@@ -76,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<ConversationReadHandler>();
         services.AddScoped<UserEventsHandler>();
         services.AddScoped<EmailVerificationHandler>();
+        services.AddScoped<PasswordResetHandler>();
         services.AddScoped<ConversationEventsHandler>();
         services.AddScoped<PresenceHandler>();
         services.AddSingleton<SendQuota>();

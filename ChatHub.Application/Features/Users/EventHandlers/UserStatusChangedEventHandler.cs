@@ -14,21 +14,28 @@ public sealed class UserStatusChangedEventHandler(
 {
     protected override async Task HandleAsync(UserStatusChangedEvent domainEvent, CancellationToken cancellationToken)
     {
-        var peerIds = await db.PeerIdsOfAsync(domainEvent.UserId, cancellationToken);
-        if (peerIds.Count == 0) return;
-
-        var isDeleted = await db.UserProfiles
+        var subject = await db.UserProfiles
             .AsNoTracking()
             .Where(u => u.Id == domainEvent.UserId)
-            .Select(u => u.IsDeleted)
+            .Select(u => new { u.IsDeleted, u.ShowLastSeen })
             .FirstOrDefaultAsync(cancellationToken);
+        if (subject is null || (!subject.IsDeleted && !subject.ShowLastSeen)) return;
 
-        var payload = isDeleted
-            ? new PresenceChangedPayload(domainEvent.UserId, false, null)
+        var viewers = (await db.PeersOfAsync(domainEvent.UserId, cancellationToken))
+            .Where(p => p.SharesPresence)
+            .Select(p => p.UserId)
+            .ToList();
+        if (viewers.Count == 0) return;
+
+        var payload = subject.IsDeleted
+            ? PresenceChangedPayload.Hidden(domainEvent.UserId)
             : new PresenceChangedPayload(domainEvent.UserId, domainEvent.IsOnline, domainEvent.LastSeenUtc);
 
-        await signalR.SendToUsersAsync(peerIds, ChatEvents.PresenceChanged, payload, cancellationToken);
+        await signalR.SendToUsersAsync(viewers, ChatEvents.PresenceChanged, payload, cancellationToken);
     }
 }
 
-public sealed record PresenceChangedPayload(Guid UserId, bool IsOnline, DateTime? LastSeenUtc);
+public sealed record PresenceChangedPayload(Guid UserId, bool IsOnline, DateTime? LastSeenUtc)
+{
+    public static PresenceChangedPayload Hidden(Guid userId) => new(userId, false, null);
+}

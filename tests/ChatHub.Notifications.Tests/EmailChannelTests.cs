@@ -84,6 +84,46 @@ public sealed class EmailChannelTests(MailpitFixture mailpit) : IClassFixture<Ma
     }
 
     [Fact]
+    public async Task SendAsync_PasswordResetEmail_ArrivesWithTheFrontendLinkItsExpiryAndTheIgnoreHint()
+    {
+        await using var channel = Channel(mailpit.Container.Hostname, mailpit.Container.GetMappedPublicPort(MailpitFixture.SmtpPort));
+        var address = $"reset-{Guid.NewGuid():N}@example.com";
+        const string link = "https://chat.example.test/reset-password?token=abc_DEF-123";
+
+        await channel.SendAsync(new PasswordResetNotification(Guid.CreateVersion7(), address, "Bob", link,
+            new DateTime(2026, 11, 26, 10, 30, 0, DateTimeKind.Utc)), CancellationToken.None);
+
+        var (message, headers) = await MessageToAsync(address);
+        message.GetProperty("Subject").GetString().ShouldBe("Reset your ChatHub password");
+        var text = message.GetProperty("Text").GetString()!;
+        text.ShouldContain(link);
+        text.ShouldContain("expires on 2026-11-26 at 10:30 UTC");
+        text.ShouldContain("If this wasn't you, ignore this email.");
+        message.GetProperty("HTML").GetString()!.ShouldContain($"href=\"{link}\"");
+        Header(headers, "X-ChatHub-Kind").ShouldBe("Transactional");
+        Header(headers, "List-Unsubscribe").ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task SendAsync_PasswordChangedEmail_ArrivesWithTheForgotPasswordLink()
+    {
+        await using var channel = Channel(mailpit.Container.Hostname, mailpit.Container.GetMappedPublicPort(MailpitFixture.SmtpPort));
+        var address = $"changed-{Guid.NewGuid():N}@example.com";
+        const string link = "https://chat.example.test/forgot-password";
+
+        await channel.SendAsync(new PasswordChangedNotification(Guid.CreateVersion7(), address, "Bob", link), CancellationToken.None);
+
+        var (message, headers) = await MessageToAsync(address);
+        message.GetProperty("Subject").GetString().ShouldBe("Your ChatHub password was changed");
+        var text = message.GetProperty("Text").GetString()!;
+        text.ShouldContain("If this wasn't you, reset your password right away:");
+        text.ShouldContain(link);
+        text.ShouldContain(address);
+        message.GetProperty("HTML").GetString()!.ShouldContain($"href=\"{link}\"");
+        Header(headers, "X-ChatHub-Kind").ShouldBe("Transactional");
+    }
+
+    [Fact]
     public async Task SendAsync_Digest_CarriesOneClickListUnsubscribeHeadersAndAVisibleLink()
     {
         await using var channel = Channel(mailpit.Container.Hostname, mailpit.Container.GetMappedPublicPort(MailpitFixture.SmtpPort));

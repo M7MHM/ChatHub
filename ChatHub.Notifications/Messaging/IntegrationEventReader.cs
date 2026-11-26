@@ -56,6 +56,11 @@ public static class IntegrationEventReader
         EmailVerificationRequested v when v.UserId == Guid.Empty || v.DisplayName is null || !IsEmailAddress(v.Email) =>
             "userId, displayName and a valid email are required.",
         EmailVerificationRequested v when !IsHttpUrl(v.VerificationLink) => "verificationLink must be an absolute http(s) URL.",
+        PasswordResetRequested r when r.UserId == Guid.Empty || r.DisplayName is null || !IsEmailAddress(r.Email) =>
+            "userId, displayName and a valid email are required.",
+        PasswordResetRequested r when !IsHttpUrl(r.ResetLink) => "resetLink must be an absolute http(s) URL.",
+        PasswordResetCompleted c when c.UserId == Guid.Empty || c.DisplayName is null || !IsEmailAddress(c.Email) =>
+            "userId, displayName and a valid email are required.",
         MessageEdited m when m.ChatMessageId == Guid.Empty || m.ConversationId == Guid.Empty || m.Preview is null =>
             "chatMessageId, conversationId and preview are required.",
         MessageDeleted m when m.ChatMessageId == Guid.Empty || m.ConversationId == Guid.Empty =>

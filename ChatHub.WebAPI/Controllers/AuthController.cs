@@ -48,6 +48,21 @@ public sealed class AuthController(ISender sender) : ApiController(sender)
         [FromBody] ChangePasswordCommand command, CancellationToken cancellationToken) =>
         ToOk(await Sender.Send(command, cancellationToken));
 
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.PasswordReset)]
+    [HttpPost("auth/forgot-password")]
+    [ProducesResponseType<ForgotPasswordResponse>(StatusCodes.Status202Accepted)]
+    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword(
+        [FromBody] ForgotPasswordCommand command, CancellationToken cancellationToken) =>
+        ToAccepted(await Sender.Send(command, cancellationToken));
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.AuthStrict)]
+    [HttpPost("auth/reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordCommand command, CancellationToken cancellationToken) =>
+        ToNoContent(await Sender.Send(command, cancellationToken));
+
     [EnableRateLimiting(RateLimitPolicies.EmailVerification)]
     [HttpPost("auth/email-verification")]
     [ProducesResponseType<EmailVerificationResponse>(StatusCodes.Status202Accepted)]

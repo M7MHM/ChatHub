@@ -7,13 +7,17 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace ChatHub.Application.Features.Users.Queries;
 
 public sealed record GetMeQuery : IRequest<Result<MeResponse>>;
 
-public sealed class GetMeQueryHandler(ICurrentUserService currentUser, HybridCache cache, IServiceScopeFactory scopeFactory)
-    : IRequestHandler<GetMeQuery, Result<MeResponse>>
+public sealed class GetMeQueryHandler(
+    ICurrentUserService currentUser,
+    HybridCache cache,
+    IServiceScopeFactory scopeFactory,
+    IOptions<UsernameSettings> usernameOptions) : IRequestHandler<GetMeQuery, Result<MeResponse>>
 {
     public async Task<Result<MeResponse>> Handle(GetMeQuery request, CancellationToken cancellationToken)
     {
@@ -21,27 +25,50 @@ public sealed class GetMeQueryHandler(ICurrentUserService currentUser, HybridCac
 
         var me = await cache.GetOrCreateAsync(
             CacheKeys.UserProfile(userId),
-            (scopeFactory, userId),
+            (scopeFactory, userId, cooldown: usernameOptions.Value.ChangeCooldown),
             static async (state, token) =>
             {
                 await using var scope = state.scopeFactory.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
-                return await db.UserProfiles
+                var row = await db.UserProfiles
                     .AsNoTracking()
                     .Where(u => u.Id == state.userId && !u.IsDeleted)
-                    .Select(u => new MeResponse(
+                    .Select(u => new
+                    {
                         u.Id,
+                        u.Username,
                         u.DisplayName,
-                        u.Email == null ? null : u.Email.Value,
-                        u.EmailVerifiedAtUtc != null,
+                        u.Email,
+                        EmailVerified = u.EmailVerifiedAtUtc != null,
                         u.EmailNotificationsEnabled,
-                        u.PhoneNumber == null ? null : u.PhoneNumber.FullNumber,
+                        u.PhoneNumber,
                         u.AvatarUrl,
                         u.Bio,
                         u.IsOnline,
                         u.LastSeenUtc,
-                        u.CreatedAtUtc))
+                        u.ShowLastSeen,
+                        u.UsernameChangedAtUtc,
+                        u.CreatedAtUtc
+                    })
                     .FirstOrDefaultAsync(token);
+
+                return row is null
+                    ? null
+                    : new MeResponse(
+                        row.Id,
+                        row.Username.Value,
+                        row.DisplayName,
+                        row.Email?.Value,
+                        row.EmailVerified,
+                        row.EmailNotificationsEnabled,
+                        row.PhoneNumber?.FullNumber,
+                        row.AvatarUrl,
+                        row.Bio,
+                        row.IsOnline,
+                        row.LastSeenUtc,
+                        row.ShowLastSeen,
+                        row.UsernameChangedAtUtc + state.cooldown,
+                        row.CreatedAtUtc);
             },
             CacheKeys.UserProfileEntryOptions,
             cancellationToken: cancellationToken);
@@ -53,6 +80,7 @@ public sealed class GetMeQueryHandler(ICurrentUserService currentUser, HybridCac
 [ImmutableObject(true)]
 public sealed record MeResponse(
     Guid Id,
+    string Username,
     string DisplayName,
     string? Email,
     bool EmailVerified,
@@ -62,4 +90,6 @@ public sealed record MeResponse(
     string? Bio,
     bool IsOnline,
     DateTime? LastSeenUtc,
+    bool ShowLastSeen,
+    DateTime? UsernameChangeAvailableAtUtc,
     DateTime CreatedAtUtc);

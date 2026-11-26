@@ -25,11 +25,22 @@
 #   JavaScript: .withUrl(url, { ..., accessTokenFactory: () => getFreshAccessToken() }).withAutomaticReconnect()
 #   .NET:       o.AccessTokenProvider = GetFreshAccessTokenAsync; builder.WithAutomaticReconnect()
 # If automatic reconnect gives up (onclose), start the connection again after refreshing the token.
+#
+# Presence and privacy: PresenceChanged { userId, isOnline, lastSeenUtc } is only sent about users who show their last
+# seen, and only to users who show their own. When someone hides theirs, peers get { isOnline: false, lastSeenUtc: null }
+# at once (and the hider gets the same for each peer); when they show it again, both sides get the real state.
+# Message payloads (MessageReceived, MessageUpdated, GET messages) and MemberAdded never carry presence: their
+# sender/member has isOnline false and lastSeenUtc null. Read presence from the conversation list and details, user
+# lookup, search and PresenceChanged. Every user summary has a "username" (null for deleted accounts).
 
 ### Health
 GET {{baseUrl}}/health
 
-### ───────────── Auth (per IP: register/login 10 / minute, refresh/logout/change-password 60 / minute) ─────────────
+### ───────────── Auth (per IP: register/login/reset-password 10 / minute, refresh/logout/change-password 60 / minute) ─────────────
+# Every account needs a username: 3-30 characters, lowercase letters, digits, "_" and ".", starting with a letter, no two
+# "." or "_" in a row, not ending with "."; stored lowercase ("Alice_99" becomes "alice_99"). Reserved names (admin,
+# support, chathub, system, api, root, help, guest, bot, null, undefined, ...) are refused. Validation errors come back as
+# 400 with an "errors.Username" entry; a name in use as 409 User.UsernameTaken.
 
 # @name registerAlice
 POST {{baseUrl}}/api/auth/register
@@ -37,6 +48,7 @@ Content-Type: application/json
 
 {
   "displayName": "Alice",
+  "username": "alice",
   "email": "alice@example.com",
   "phoneNumber": null,
   "password": "secret123"
@@ -53,6 +65,7 @@ Content-Type: application/json
 
 {
   "displayName": "Bob",
+  "username": "bob_builder",
   "email": null,
   "phoneNumber": "01001234567",
   "password": "secret123"
@@ -65,17 +78,28 @@ Content-Type: application/json
 
 {
   "displayName": "Carol",
+  "username": "carol",
   "email": "carol@example.com",
   "password": "secret123"
 }
 
 ###
+# The identifier is an email (contains "@"), else a phone number (any accepted format), else a username (any case).
 # @name login
 POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
   "identifier": "alice@example.com",
+  "password": "secret123"
+}
+
+###
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "identifier": "bob_builder",
   "password": "secret123"
 }
 
@@ -121,6 +145,32 @@ Content-Type: application/json
   "token": "paste-the-token-from-the-email"
 }
 
+### ───────────── Forgot / reset password (forgot: 5 / minute per IP and 3 emails / hour per user) ─────────────
+# Always 202 with the same body and at least PasswordReset:MinimumResponseMilliseconds (300 ms), whether or not the
+# address belongs to an account, so the answer reveals nothing. Only an active account with this VERIFIED email gets
+# "Reset your ChatHub password" (Mailpit under docker compose). Its link opens the frontend:
+#   {App:FrontendBaseUrl}/reset-password?token=...   (valid 30 minutes, once; a newer request disables older links)
+# 400 when the address is malformed.
+POST {{baseUrl}}/api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "alice@example.com"
+}
+
+###
+# The frontend's /reset-password page posts the token from its URL with the new password (same rules as register).
+# 204: the password is changed, every session is signed out (refresh tokens revoked, access tokens rejected, hub
+# connections closed) and a "Your ChatHub password was changed" email follows. Problems: Auth.InvalidResetToken,
+# Auth.ResetTokenExpired (expired or replaced by a newer link), Auth.ResetTokenUsed; 400 with errors.NewPassword.
+POST {{baseUrl}}/api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "paste-the-token-from-the-email-link",
+  "newPassword": "newsecret456"
+}
+
 ### ───────────── Unsubscribe (no login; every digest email links here) ─────────────
 # GET shows a confirmation page with a button and changes nothing (mail scanners open links).
 GET {{baseUrl}}/api/email/unsubscribe?token=paste-the-token-from-the-digest
@@ -160,7 +210,45 @@ Content-Type: application/json
 }
 
 ###
+# Username availability while typing (anonymous allowed, 30 / minute per IP). Always 200:
+#   { "username": "alice_2", "available": true, "reason": null }
+#   reason: "invalid" | "reserved" | "taken" when not available. Nothing about the owner is returned; names of deleted
+#   accounts are free again. With a token, your own current name counts as available.
+GET {{baseUrl}}/api/users/username-availability?username=Alice_2
+
+###
+# Change the username: 200 { "username": "alice.smith", "nextChangeAtUtc": "..." }. Once every
+# Username:ChangeCooldownDays (14) days; the first change after registration is free, and setting the current name again
+# changes nothing. Problems: 400 User.UsernameInvalid / User.UsernameReserved, 409 User.UsernameTaken,
+# 429 User.UsernameChangeTooSoon (the detail says when). GET /api/users/me shows "usernameChangeAvailableAtUtc".
+PUT {{baseUrl}}/api/users/me/username
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "username": "Alice.Smith"
+}
+
+###
+# Last seen privacy (default true). false: nobody sees your online status or last seen (peers get a PresenceChanged
+# "offline, no last seen" right away), and you no longer see anyone else's either. You always see your own.
+# Typing indicators are not affected. GET /api/users/me shows "showLastSeen".
+PUT {{baseUrl}}/api/users/me/privacy
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "showLastSeen": false
+}
+
+###
+# Matches display names (contains), usernames (exact or prefix, a leading "@" is ignored; an exact match comes first),
+# an exact email or an exact phone number.
 GET {{baseUrl}}/api/users/search?query=bob&pageSize=20
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/api/users/search?query=@bob_b
 Authorization: Bearer {{accessToken}}
 
 ###

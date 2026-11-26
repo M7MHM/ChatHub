@@ -72,7 +72,8 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
                 ["Jwt:Issuer"] = "ChatHub.Tests",
                 ["Jwt:Audience"] = "ChatHub.Tests.Clients",
                 ["FileStorage:RootPath"] = FilesRoot,
-                ["FileStorage:SigningKey"] = "application-tests-file-signing-key-0123456789"
+                ["FileStorage:SigningKey"] = "application-tests-file-signing-key-0123456789",
+                ["PasswordReset:MinimumResponseMilliseconds"] = "0"
             })
             .AddInMemoryCollection(Settings)
             .Build();
@@ -154,7 +155,7 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
     protected async Task<Guid> CreateUserAsync(string displayName, string? email = null, string? phone = null)
     {
         email ??= phone is null ? $"{displayName.ToLowerInvariant().Replace(' ', '.')}@example.com" : null;
-        var user = UserProfile.Create(displayName, PasswordHash.Value,
+        var user = UserProfile.Create(Username.Create(TestUsernames.For(displayName)), displayName, PasswordHash.Value,
             phone is null ? null : PhoneNumber.Create(phone),
             email is null ? null : Email.Create(email));
 
@@ -167,7 +168,7 @@ public abstract partial class AppTestBase(DatabaseFixture database) : IAsyncLife
     }
 
     protected async Task<AuthResponse> RegisterAsync(string displayName, string? email = null, string? phone = null) =>
-        (await SendAsync(null, new RegisterCommand(displayName, email, phone, Password))).ShouldSucceed();
+        (await SendAsync(null, new RegisterCommand(displayName, TestUsernames.For(displayName), email, phone, Password))).ShouldSucceed();
 
     protected async Task<AuthResponse> LoginAsync(string identifier, string password = Password) =>
         (await SendAsync(null, new LoginCommand(identifier, password))).ShouldSucceed();

@@ -38,4 +38,14 @@ public static class AuthErrors
 
     public static readonly Error VerificationTokenUsed =
         Error.Validation("Auth.VerificationTokenUsed", "The verification link was already used.");
+
+    public static readonly Error InvalidResetToken =
+        Error.Validation("Auth.InvalidResetToken", "The password reset link is invalid.");
+
+    public static readonly Error ResetTokenExpired =
+        Error.Validation("Auth.ResetTokenExpired",
+            "The password reset link has expired or was replaced by a newer one. Request a new one.");
+
+    public static readonly Error ResetTokenUsed =
+        Error.Validation("Auth.ResetTokenUsed", "The password reset link was already used.");
 }

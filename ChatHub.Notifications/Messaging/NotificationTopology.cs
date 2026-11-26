@@ -23,7 +23,9 @@ public static class NotificationTopology
         MessageRoutes.MessageDeleted,
         MessageRoutes.MemberLeft,
         MessageRoutes.MemberKicked,
-        MessageRoutes.ConversationMuteChanged
+        MessageRoutes.ConversationMuteChanged,
+        MessageRoutes.PasswordResetRequested,
+        MessageRoutes.PasswordResetCompleted
     ];
 
     public static async Task DeclareAsync(IChannel channel, CancellationToken cancellationToken)

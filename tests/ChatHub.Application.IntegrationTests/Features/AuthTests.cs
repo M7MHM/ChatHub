@@ -22,7 +22,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     {
         await RegisterAsync("Alice", "Alice@Example.com");
 
-        var result = await SendAsync(null, new RegisterCommand("X", "alice@example.com", null, Password));
+        var result = await SendAsync(null, new RegisterCommand("X", TestUsernames.For("X"), "alice@example.com", null, Password));
 
         result.ShouldFailWith(AuthErrors.ContactInUse);
     }
@@ -32,7 +32,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     {
         await RegisterAsync("Bob Builder", phone: "+20 100 123 4567");
 
-        var result = await SendAsync(null, new RegisterCommand("X", null, "+201001234567", Password));
+        var result = await SendAsync(null, new RegisterCommand("X", TestUsernames.For("X"), null, "+201001234567", Password));
 
         result.ShouldFailWith(AuthErrors.ContactInUse);
     }
@@ -59,7 +59,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     {
         await RegisterAsync("Bob", phone: "01001234567");
 
-        var result = await SendAsync(null, new RegisterCommand("X", null, otherFormat, Password));
+        var result = await SendAsync(null, new RegisterCommand("X", TestUsernames.For("X"), null, otherFormat, Password));
 
         result.ShouldFailWith(AuthErrors.ContactInUse);
     }
@@ -72,7 +72,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     public async Task Register_WrongLengthLandlineOrForeignWithoutPlus_ThrowsValidationExceptionWithTheMobileMessage(string phone)
     {
         var exception = await Should.ThrowAsync<ValidationException>(() =>
-            SendAsync(null, new RegisterCommand("X", null, phone, Password)));
+            SendAsync(null, new RegisterCommand("X", TestUsernames.For("X"), null, phone, Password)));
 
         exception.Errors["PhoneNumber"].ShouldBe(["Enter a valid Egyptian mobile number, e.g. 01001234567"]);
     }
@@ -95,7 +95,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     public async Task Register_MissingNameContactAndShortPassword_ThrowsValidationException()
     {
         var exception = await Should.ThrowAsync<ValidationException>(() =>
-            SendAsync(null, new RegisterCommand("", null, null, "short")));
+            SendAsync(null, new RegisterCommand("", TestUsernames.For(""), null, null, "short")));
 
         exception.Errors.Keys.ShouldBe(["DisplayName", "Contact", "Password"], ignoreOrder: true);
     }
@@ -104,7 +104,7 @@ public sealed class AuthTests(DatabaseFixture database) : AppTestBase(database)
     public async Task Register_InvalidEmailPhoneAndPasswordWithoutDigit_ThrowsValidationException()
     {
         var exception = await Should.ThrowAsync<ValidationException>(() =>
-            SendAsync(null, new RegisterCommand("X", "not-an-email", "123", "abcdefgh")));
+            SendAsync(null, new RegisterCommand("X", TestUsernames.For("X"), "not-an-email", "123", "abcdefgh")));
 
         exception.Errors.Keys.ShouldBe(["Email", "PhoneNumber", "Password"], ignoreOrder: true);
     }

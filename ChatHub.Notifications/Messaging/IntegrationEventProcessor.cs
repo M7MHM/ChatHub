@@ -18,6 +18,7 @@ public sealed class IntegrationEventProcessor(
     ConversationReadHandler reads,
     UserEventsHandler users,
     EmailVerificationHandler verifications,
+    PasswordResetHandler passwordResets,
     ConversationEventsHandler conversations,
     PresenceHandler presence,
     TimeProvider timeProvider) : IIntegrationEventProcessor
@@ -43,6 +44,8 @@ public sealed class IntegrationEventProcessor(
                 e.EmailNotificationsEnabled, e.UnsubscribeLink, e.OccurredAtUtc), cancellationToken),
             UserDeleted e => users.DeleteAsync(e.UserId, e.OccurredAtUtc, cancellationToken),
             EmailVerificationRequested e => verifications.HandleAsync(e, nowUtc, cancellationToken),
+            PasswordResetRequested e => passwordResets.RequestedAsync(e, nowUtc, cancellationToken),
+            PasswordResetCompleted e => passwordResets.CompletedAsync(e, nowUtc, cancellationToken),
             MessageEdited e => conversations.MessageEditedAsync(e, nowUtc, cancellationToken),
             MessageDeleted e => conversations.MessageDeletedAsync(e, nowUtc, cancellationToken),
             MemberLeft e => conversations.MemberRemovedAsync(e.ConversationId, e.UserId, e.OccurredAtUtc, cancellationToken),

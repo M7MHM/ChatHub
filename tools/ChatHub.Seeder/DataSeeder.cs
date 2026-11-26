@@ -162,7 +162,8 @@ public sealed class DataSeeder(ApplicationDbContext db, SeedOptions options, Tex
         for (var i = 0; i < ids.Length; i++)
         {
             var displayName = $"{Pick(random, FirstNames)} {Pick(random, LastNames)}";
-            var user = UserProfile.Create(displayName, passwordHash, email: Email.Create(SeedOptions.EmailOf(i + 1)));
+            var user = UserProfile.Create(Username.Create(SeedOptions.UsernameOf(i + 1)), displayName, passwordHash,
+                email: Email.Create(SeedOptions.EmailOf(i + 1)));
             db.UserProfiles.Add(user);
             var createdAtUtc = Truncate(windowStart.AddMinutes(-random.Next(60, 60 * 24 * 60)));
             Set(user, u => u.CreatedAtUtc, createdAtUtc);

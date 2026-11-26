@@ -26,6 +26,7 @@ public static class IntegrationEventMapper
             .. ConversationsRead(domainEvents.OfType<MessageReadEvent>()),
             .. db.UserChanges(domainEvents, nowUtc, links),
             .. db.EmailVerificationsRequested(domainEvents.OfType<EmailVerificationRequestedEvent>(), nowUtc, links),
+            .. db.PasswordResets(domainEvents, nowUtc, links),
             .. db.MessageChanges(domainEvents, nowUtc),
             .. MembershipChanges(domainEvents, nowUtc),
             .. PresenceChanges(domainEvents.OfType<UserStatusChangedEvent>(), nowUtc)
@@ -126,6 +127,19 @@ public static class IntegrationEventMapper
         IEnumerable<EmailVerificationRequestedEvent> events, DateTime nowUtc, EmailLinks links) =>
         events.Select(e => new EmailVerificationRequested(Guid.CreateVersion7(), nowUtc, e.UserId, e.Email,
             db.TrackedUser(e.UserId).DisplayName, links.VerifyEmail(e.Token), DatabasePrecision(e.ExpiresAtUtc)));
+
+    private static IEnumerable<IIntegrationEvent> PasswordResets(this IApplicationDbContext db,
+        IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc, EmailLinks links)
+    {
+        foreach (var requested in events.OfType<PasswordResetRequestedEvent>())
+            yield return new PasswordResetRequested(Guid.CreateVersion7(), nowUtc, requested.UserId, requested.Email,
+                db.TrackedUser(requested.UserId).DisplayName, links.ResetPassword(requested.Token),
+                DatabasePrecision(requested.ExpiresAtUtc));
+
+        foreach (var completed in events.OfType<PasswordResetCompletedEvent>())
+            yield return new PasswordResetCompleted(Guid.CreateVersion7(), nowUtc, completed.UserId, completed.Email,
+                db.TrackedUser(completed.UserId).DisplayName, DatabasePrecision(completed.ChangedAtUtc));
+    }
 
     private static IEnumerable<IIntegrationEvent> MessageChanges(this IApplicationDbContext db,
         IReadOnlyCollection<IDomainEvent> events, DateTime nowUtc)

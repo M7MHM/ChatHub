@@ -57,7 +57,7 @@ public abstract class ApiTestBase(ApiFixture fixture) : IAsyncLifetime
     {
         email ??= phone is null ? $"{displayName.ToLowerInvariant()}@example.com" : null;
         var response = await NewClient().PostAsync("/api/auth/register",
-            new { displayName, email, phoneNumber = phone, password = Password });
+            new { displayName, username = TestUsernames.For(displayName), email, phoneNumber = phone, password = Password });
         response.Status.ShouldBe(201, response.Text);
         return TestUser.From(response.Json, email);
     }
