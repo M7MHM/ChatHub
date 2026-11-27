@@ -1,6 +1,7 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
+using ChatHub.Application.Features.Guests;
 using FluentValidation;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,7 @@ public sealed class GetUserProfileQueryHandler(IApplicationDbContext db, ICurren
     public async Task<Result<UserProfileResponse>> Handle(GetUserProfileQuery request, CancellationToken cancellationToken)
     {
         var me = currentUser.GetRequiredUserId();
+        if (await db.CheckContactsAsync(me, [request.UserId], cancellationToken) is not null) return UserErrors.NotFound;
         var iSharePresence = await db.SharesPresenceAsync(me, cancellationToken);
 
         var profile = await db.UserProfiles

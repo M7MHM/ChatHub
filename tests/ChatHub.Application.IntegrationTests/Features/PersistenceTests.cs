@@ -35,7 +35,7 @@ public sealed class PersistenceTests(DatabaseFixture database) : AppTestBase(dat
     {
         var applied = (await QueryDbAsync(db => db.Database.GetAppliedMigrationsAsync())).ToList();
 
-        applied.Count.ShouldBe(8);
+        applied.Count.ShouldBe(10);
         applied[0].ShouldEndWith("_InitialCreate");
         applied[1].ShouldEndWith("_AddSecurityStamp");
         applied[2].ShouldEndWith("_AddUploadedFiles");
@@ -44,6 +44,8 @@ public sealed class PersistenceTests(DatabaseFixture database) : AppTestBase(dat
         applied[5].ShouldEndWith("_AddUsernames");
         applied[6].ShouldEndWith("_AddLastSeenPrivacy");
         applied[7].ShouldEndWith("_AddPasswordResetTokens");
+        applied[8].ShouldEndWith("_AddGuestAccounts");
+        applied[9].ShouldEndWith("_AddBotReplies");
     }
 
     [Fact]

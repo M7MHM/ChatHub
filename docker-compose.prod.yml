@@ -167,6 +167,12 @@ services:
       PasswordReset__TokenLifetimeMinutes: ${PASSWORD_RESET_TOKEN_LIFETIME_MINUTES:-30}
       PasswordReset__MaxRequestsPerHour: ${PASSWORD_RESET_MAX_REQUESTS_PER_HOUR:-3}
       Username__ChangeCooldownDays: ${USERNAME_CHANGE_COOLDOWN_DAYS:-14}
+      # Guest mode ("Continue as guest") and the demo bot.
+      Guest__Enabled: ${GUEST_ENABLED:-true}
+      Guest__LifetimeHours: ${GUEST_LIFETIME_HOURS:-24}
+      Guest__MaxActive: ${GUEST_MAX_ACTIVE:-500}
+      Guest__CreatePerIpPerHour: ${GUEST_CREATE_PER_IP_PER_HOUR:-5}
+      Bot__Enabled: ${BOT_ENABLED:-true}
       RateLimiting__AuthStrictPermitLimit: ${RATE_LIMIT_AUTH_STRICT:-10}
     labels:
       chathub.config-fingerprint: ${CHATHUB_CONFIG_FINGERPRINT:-}

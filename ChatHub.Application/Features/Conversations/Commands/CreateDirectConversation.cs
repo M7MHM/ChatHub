@@ -1,6 +1,7 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Application.Features.Users;
 using ChatHub.Domain.Entities;
 using FluentValidation;
@@ -34,6 +35,8 @@ public sealed class CreateDirectConversationCommandHandler(
 
         var otherExists = await db.UserProfiles.AnyAsync(u => u.Id == otherUserId && !u.IsDeleted, cancellationToken);
         if (!otherExists) return UserErrors.NotFound;
+
+        if (await db.CheckContactsAsync(me, [otherUserId], cancellationToken) is { } restricted) return restricted;
 
         if (await db.IsBlockedEitherWayAsync(me, otherUserId, cancellationToken))
             return ConversationErrors.Blocked;

@@ -9,6 +9,7 @@ public class UserProfile : BaseAuditableEntity
 {
     public const int MaxDisplayNameLength = 100;
     public const int MaxBioLength = 500;
+    public const string UnusablePasswordHash = "!";
 
     private UserProfile() { }
 
@@ -27,8 +28,13 @@ public class UserProfile : BaseAuditableEntity
     public bool EmailNotificationsEnabled { get; private set; } = true;
     public string? UnsubscribeTokenHash { get; private set; }
     public bool ShowLastSeen { get; private set; } = true;
+    public bool IsGuest { get; private set; }
+    public DateTime? GuestExpiresAtUtc { get; private set; }
+    public bool IsDemoPersona { get; private set; }
 
     public bool IsEmailVerified => EmailVerifiedAtUtc is not null;
+
+    public bool IsGuestExpired(DateTime nowUtc) => IsGuest && GuestExpiresAtUtc <= nowUtc;
 
     public ICollection<ConversationMember> Memberships { get; private set; } = new List<ConversationMember>();
     public ICollection<UserBlock> BlockedUsers { get; private set; } = new List<UserBlock>();
@@ -60,6 +66,44 @@ public class UserProfile : BaseAuditableEntity
         return user;
     }
 
+    public static UserProfile CreateGuest(Username username, string displayName, DateTime createdAtUtc, TimeSpan lifetime)
+    {
+        ArgumentNullException.ThrowIfNull(username);
+        if (lifetime <= TimeSpan.Zero)
+            throw new DomainRuleViolationException("A guest account must have a positive lifetime.");
+
+        return new UserProfile
+        {
+            Username = username,
+            DisplayName = ValidateDisplayName(displayName),
+            PasswordHash = UnusablePasswordHash,
+            SecurityStamp = Guid.NewGuid(),
+            CreatedAtUtc = createdAtUtc,
+            IsGuest = true,
+            GuestExpiresAtUtc = createdAtUtc + lifetime
+        };
+    }
+
+    public static UserProfile CreateDemoPersona(Guid id, Username username, string displayName, string? bio)
+    {
+        if (id == Guid.Empty)
+            throw new DomainRuleViolationException("A demo persona needs a fixed id.");
+        ArgumentNullException.ThrowIfNull(username);
+        if (bio is { Length: > MaxBioLength })
+            throw new DomainRuleViolationException($"Bio cannot exceed {MaxBioLength} characters.");
+
+        return new UserProfile
+        {
+            Id = id,
+            Username = username,
+            DisplayName = ValidateDisplayName(displayName),
+            Bio = string.IsNullOrWhiteSpace(bio) ? null : bio.Trim(),
+            PasswordHash = UnusablePasswordHash,
+            SecurityStamp = Guid.NewGuid(),
+            IsDemoPersona = true
+        };
+    }
+
     public void UpdateProfile(string displayName, string? avatarUrl, string? bio)
     {
         EnsureNotDeleted();
@@ -80,6 +124,7 @@ public class UserProfile : BaseAuditableEntity
     public void ChangePassword(string newPasswordHash)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         PasswordHash = ValidatePasswordHash(newPasswordHash);
         RotateSecurityStamp();
     }
@@ -94,6 +139,7 @@ public class UserProfile : BaseAuditableEntity
     public void ChangeUsername(Username username, DateTime nowUtc, TimeSpan cooldown)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         ArgumentNullException.ThrowIfNull(username);
         if (username == Username) return;
         if (!CanChangeUsername(nowUtc, cooldown))
@@ -116,6 +162,7 @@ public class UserProfile : BaseAuditableEntity
     public PasswordResetToken RequestPasswordReset(string token, string tokenHash, DateTime nowUtc, TimeSpan lifetime)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         if (string.IsNullOrWhiteSpace(token))
             throw new DomainRuleViolationException("A password reset token is required.");
         if (Email is null || !IsEmailVerified)
@@ -144,6 +191,7 @@ public class UserProfile : BaseAuditableEntity
     public void ChangePhoneNumber(PhoneNumber? phoneNumber)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         if (phoneNumber is null && Email is null)
             throw new DomainRuleViolationException("Cannot remove the only contact method.");
         if (phoneNumber == PhoneNumber) return;
@@ -155,6 +203,7 @@ public class UserProfile : BaseAuditableEntity
     public void ChangeEmail(Email? email)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         if (email is null && PhoneNumber is null)
             throw new DomainRuleViolationException("Cannot remove the only contact method.");
         if (email == Email) return;
@@ -167,6 +216,7 @@ public class UserProfile : BaseAuditableEntity
     public EmailVerificationToken RequestEmailVerification(string token, string tokenHash, DateTime nowUtc, TimeSpan lifetime)
     {
         EnsureNotDeleted();
+        EnsureCredentialsCanChange();
         if (string.IsNullOrWhiteSpace(token))
             throw new DomainRuleViolationException("A verification token is required.");
         if (Email is null)
@@ -257,6 +307,12 @@ public class UserProfile : BaseAuditableEntity
     private void EnsureNotDeleted()
     {
         if (IsDeleted) throw new DomainRuleViolationException("User profile is deleted.");
+    }
+
+    private void EnsureCredentialsCanChange()
+    {
+        if (IsGuest || IsDemoPersona)
+            throw new DomainRuleViolationException("Guest and demo accounts cannot change their username, contact details or password.");
     }
 
 }

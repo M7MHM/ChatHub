@@ -1,6 +1,7 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Application.Features.Users;
 using FluentValidation;
 using MediatR;
@@ -36,6 +37,8 @@ public sealed class AddMemberCommandHandler(
         var targetExists = await db.UserProfiles
             .AnyAsync(u => u.Id == request.UserId && !u.IsDeleted, cancellationToken);
         if (!targetExists) return UserErrors.NotFound;
+
+        if (await db.CheckContactsAsync(me, [request.UserId], cancellationToken) is { } restricted) return restricted;
 
         if (await db.IsBlockedEitherWayAsync(me, request.UserId, cancellationToken))
             return ConversationErrors.Blocked;

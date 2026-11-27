@@ -304,6 +304,31 @@ Every container writes JSON logs capped at 3 × 10 MB. All services use `restart
 
 Editing the Caddyfile: change it, then `docker exec edge-caddy-1 caddy reload --config /etc/caddy/Caddyfile` (graceful). Changing `deploy/edge/.env` or `compose.yml` needs `docker compose -f deploy/edge/compose.yml --env-file deploy/edge/.env up -d`, which restarts Caddy and drops open WebSockets for a moment (clients reconnect).
 
+## Guest mode in production
+
+`POST /api/auth/guest` is public. Every visitor of the frontend can create an account with one click, so these settings in `.env.prod` bound what that costs:
+
+| Setting (`.env.prod`) | Default | Effect |
+|---|---|---|
+| `GUEST_ENABLED` | `true` | `false` makes the endpoint answer 404 (the frontend should hide its button). Existing guests are still cleaned up. |
+| `GUEST_LIFETIME_HOURS` | `24` | A guest, its tokens and its chats are deleted this long after it was created. |
+| `GUEST_MAX_ACTIVE` | `500` | Live guests at once. Over it, `429 Guest.CapacityReached` until guests expire. Each guest costs about 30 rows (3 conversations, 8 memberships, 14 messages, a refresh token) plus the rows of what it does, so 500 guests are a few MB. The cap is checked before the insert, so a burst can overshoot it by the number of simultaneous requests. |
+| `GUEST_CREATE_PER_IP_PER_HOUR` | `5` | Guests one client IP may create per hour (fixed window, per replica, real IP from Caddy's `X-Forwarded-For`). Offices and mobile carriers share IPs; raise it if real visitors hit the 429. |
+| `BOT_ENABLED` | `true` | `false` stops ChatHub Bot's replies; guests still get their seeded chats. |
+
+Also adjustable through the `Guest__*` and `Bot__*` variables (see `.env.example`): `Guest__CleanupIntervalMinutes` (5), `Bot__ReplyDelayMilliseconds` (1500), `Bot__MaxRepliesPerConversationPerMinute` (6) and `Bot__PollIntervalMilliseconds` (1000).
+
+- **Cleanup.** Every replica runs the guest cleanup every `Guest__CleanupIntervalMinutes`. A PostgreSQL advisory lock (`pg_try_advisory_lock`) lets only one of them work at a time; the others skip that cycle. Each expired guest goes through the normal account deletion (tokens revoked, group memberships left, avatar marked deleted, `user.deleted` published, hub connections closed), then the conversations without any real user are deleted, together with their messages and bot jobs, and the guest's uploads are marked for the file cleanup. The log line is `Guest cleanup deleted N expired guest accounts.`
+- **Personas.** The API creates the five demo personas at startup if they are missing (logged as `Created N demo personas.`), and the first guest sign-in does the same, so they exist in every environment without a seeder run. Their ids are fixed, so a restore or a second replica never duplicates them.
+- **Bot jobs** live in `BotReplies`. Every replica polls for due jobs (`FOR UPDATE SKIP LOCKED`); the replica that received the message is also woken right when the job is due. Jobs older than a day are deleted.
+- **Watching it.**
+  ```sql
+  SELECT count(*) FILTER (WHERE "GuestExpiresAtUtc" > now()) AS active, count(*) AS not_yet_deleted
+  FROM "UserProfiles" WHERE "IsGuest" AND NOT "IsDeleted";
+  SELECT count(*) FROM "BotReplies" WHERE "CompletedAtUtc" IS NULL;   -- pending bot replies, normally 0 or 1
+  ```
+- **Abuse.** Guests can only reach the personas, so spam cannot reach real users. Every guest message still goes through the outbox like any other, and the worker drops digests for guests and personas because it knows no address for them. If a flood shows up anyway, lower `GUEST_CREATE_PER_IP_PER_HOUR` or `GUEST_MAX_ACTIVE`, or set `GUEST_ENABLED=false`, then redeploy the current tag to apply it.
+
 ## When something breaks
 
 | Symptom | Look at | Usual fix |

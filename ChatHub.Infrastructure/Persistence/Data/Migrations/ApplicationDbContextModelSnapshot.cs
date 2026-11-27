@@ -23,6 +23,53 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("ChatHub.Domain.Entities.BotReply", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LockedUntilUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReplyMessageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RequestedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("TriggerText")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DueAtUtc")
+                        .HasDatabaseName("IX_BotReplies_Pending")
+                        .HasFilter("\"CompletedAtUtc\" IS NULL");
+
+                    b.HasIndex("ConversationId", "RequestedAtUtc");
+
+                    b.ToTable("BotReplies", (string)null);
+                });
+
             modelBuilder.Entity("ChatHub.Domain.Entities.Conversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -462,7 +509,16 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.Property<DateTime?>("EmailVerifiedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("GuestExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDemoPersona")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsGuest")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsOnline")
@@ -509,6 +565,9 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                     b.HasIndex("Email")
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("GuestExpiresAtUtc")
+                        .HasFilter("\"IsGuest\" AND NOT \"IsDeleted\"");
 
                     b.HasIndex("PhoneNumber")
                         .IsUnique()
@@ -571,6 +630,15 @@ namespace ChatHub.Infrastructure.Persistence.Data.Migrations
                         .HasFilter("\"ProcessedAtUtc\" IS NOT NULL");
 
                     b.ToTable("OutboxMessages", (string)null);
+                });
+
+            modelBuilder.Entity("ChatHub.Domain.Entities.BotReply", b =>
+                {
+                    b.HasOne("ChatHub.Domain.Entities.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ChatHub.Domain.Entities.ConversationMember", b =>

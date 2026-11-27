@@ -12,6 +12,7 @@ public static class RateLimitPolicies
     public const string EmailLink = "email-link";
     public const string PasswordReset = "password-reset";
     public const string UsernameCheck = "username-check";
+    public const string GuestCreate = "guest-create";
 }
 
 public static class RateLimitingExtensions
@@ -23,6 +24,7 @@ public static class RateLimitingExtensions
     public const int DefaultEmailLinkPermitLimit = 30;
     public const int DefaultPasswordResetPermitLimit = 5;
     public const int DefaultUsernameCheckPermitLimit = 30;
+    public const int DefaultGuestCreatePermitLimit = 5;
 
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
@@ -35,6 +37,7 @@ public static class RateLimitingExtensions
         var emailLink = PermitLimit(section, "EmailLinkPermitLimit", DefaultEmailLinkPermitLimit);
         var passwordReset = PermitLimit(section, "PasswordResetPermitLimit", DefaultPasswordResetPermitLimit);
         var usernameCheck = PermitLimit(section, "UsernameCheckPermitLimit", DefaultUsernameCheckPermitLimit);
+        var guestCreate = PermitLimit(configuration.GetSection("Guest"), "CreatePerIpPerHour", DefaultGuestCreatePermitLimit);
 
         return services.AddRateLimiter(options =>
         {
@@ -46,6 +49,7 @@ public static class RateLimitingExtensions
             options.AddFixedWindowPerIp(RateLimitPolicies.EmailLink, emailLink);
             options.AddFixedWindowPerIp(RateLimitPolicies.PasswordReset, passwordReset);
             options.AddFixedWindowPerIp(RateLimitPolicies.UsernameCheck, usernameCheck);
+            options.AddFixedWindowPerIp(RateLimitPolicies.GuestCreate, guestCreate, TimeSpan.FromHours(1));
 
             options.OnRejected = async (context, _) =>
             {
@@ -74,13 +78,14 @@ public static class RateLimitingExtensions
         return value > 0 ? value : throw new InvalidOperationException($"{SectionName}:{key} must be greater than zero.");
     }
 
-    private static void AddFixedWindowPerIp(this RateLimiterOptions options, string policyName, int permitLimit) =>
+    private static void AddFixedWindowPerIp(this RateLimiterOptions options, string policyName, int permitLimit,
+        TimeSpan? window = null) =>
         options.AddPolicy(policyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = permitLimit,
-                Window = Window,
+                Window = window ?? Window,
                 QueueLimit = 0
             }));
 }

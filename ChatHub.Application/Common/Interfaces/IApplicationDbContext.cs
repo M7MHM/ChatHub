@@ -13,6 +13,7 @@ public interface IApplicationDbContext
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<EmailVerificationToken> EmailVerificationTokens { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
+    DbSet<BotReply> BotReplies { get; }
     DbSet<UploadedFile> UploadedFiles { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

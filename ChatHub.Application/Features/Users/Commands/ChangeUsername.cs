@@ -1,6 +1,7 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Domain.ValueObjects;
 using FluentValidation;
 using MediatR;
@@ -37,6 +38,7 @@ public sealed class ChangeUsernameCommandHandler(
 
         var user = await db.UserProfiles.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
         if (user is null) return UserErrors.NotFound;
+        if (user.IsGuest || user.IsDemoPersona) return GuestErrors.AccountRestricted;
 
         var cooldown = options.Value.ChangeCooldown;
         if (user.Username == username) return new UsernameResponse(username.Value, user.NextUsernameChangeAtUtc(cooldown));

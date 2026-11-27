@@ -72,7 +72,7 @@ public sealed class ChatHubTests(DatabaseFixture database) : AppTestBase(databas
         var scopeFactory = scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>();
         using var hub = new ChatHubEndpoint(_tracker, new PresenceSynchronizer(scopeFactory, _tracker),
             scope.ServiceProvider.GetRequiredService<IApplicationDbContext>(),
-            scope.ServiceProvider.GetRequiredService<HybridCache>(), scopeFactory)
+            scope.ServiceProvider.GetRequiredService<HybridCache>(), scopeFactory, Clock)
         {
             Context = context,
             Groups = groups

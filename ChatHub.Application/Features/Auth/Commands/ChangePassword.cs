@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Common.Validation;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Application.Features.Users;
 using FluentValidation;
 using MediatR;
@@ -33,6 +34,7 @@ public sealed class ChangePasswordCommandHandler(
         var userId = currentUser.GetRequiredUserId();
         var user = await db.UserProfiles.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
         if (user is null) return UserErrors.NotFound;
+        if (user.IsGuest || user.IsDemoPersona) return GuestErrors.AccountRestricted;
 
         if (!passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
             return AuthErrors.InvalidCurrentPassword;

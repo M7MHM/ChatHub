@@ -40,6 +40,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("\"IsDeleted\" = false");
         builder.HasIndex(u => u.Username).IsUnique().HasFilter("\"IsDeleted\" = false");
+        builder.HasIndex(u => u.GuestExpiresAtUtc).HasFilter("\"IsGuest\" AND NOT \"IsDeleted\"");
         builder.HasIndex(u => u.UnsubscribeTokenHash).IsUnique().HasFilter("\"UnsubscribeTokenHash\" IS NOT NULL");
 
     }

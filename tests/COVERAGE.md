@@ -27,11 +27,11 @@ dotnet test ChatHub.slnx --filter "FullyQualifiedName~Api.IntegrationTests.RealT
 
 | Project | Test methods | Test cases (theory rows expanded) |
 |---|---:|---:|
-| ChatHub.Domain.UnitTests | 196 | 282 |
-| ChatHub.Application.IntegrationTests | 354 | 390 |
-| ChatHub.Api.IntegrationTests | 194 | 200 |
+| ChatHub.Domain.UnitTests | 212 | 301 |
+| ChatHub.Application.IntegrationTests | 386 | 426 |
+| ChatHub.Api.IntegrationTests | 204 | 210 |
 | ChatHub.Notifications.Tests | 105 | 131 |
-| **Total** | **849** | **1003** |
+| **Total** | **907** | **1068** |
 
 Since the harness port: the transactional outbox and RabbitMQ publisher added 3 domain, 26 application and 4 API test cases (`OutboxTests`, `OutboxPublisherTests`, `MessagingTests`; see [docs/MESSAGING.md](../docs/MESSAGING.md#tests)). The notification service added its own project (47 cases) and 2 backfill tests in `SeederTests` (see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#tests)). Phone numbers through libphonenumber (Egyptian mobiles in local, national or international form, other countries with +, stored in E.164) replaced the 6 `PhoneNumberTests` methods with 11 (35 cases) and added 17 application cases in `AuthTests` (formats, duplicates and login across formats, landlines and wrong lengths rejected, a legacy stored value still loads) and 1 API case. SMTP connection reuse added 3 `EmailChannelTests`. Email verification, email preferences and one-click unsubscribe added 14 domain cases (`EmailVerificationTests`), 27 application cases (`EmailVerificationTests`, `EmailPreferenceTests`, 4 in `OutboxTests`, 1 in `OutboxPublisherTests`, 3 in `SeederTests`, 1 in `PersistenceTests`), 10 API cases (`EmailTests`) and 25 notification cases (`VerificationEmailTests`, `DigestEligibilityTests`, `EventContractTests`, 3 in `RecipientTests`, 4 in `EmailChannelTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#email-verification). The missing events, sending limits and the transactional email queue added 1 domain case (mute events), 4 application cases (3 in `OutboxTests`, 1 in `SeederTests`; two `OutboxTests` were rewritten because edits, deletions, leaving and presence are now published) and 42 notification cases (`ConversationEventTests` 12, `PresenceTests` 4, `SendingLimitTests` 7, `SuppressionTests` 16, 2 more in `VerificationEmailTests`, which now covers the queue, and 1 in `HostTests`); see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#sending-limits). The messaging tests also start `rabbitmq:4-management`, and `EmailChannelTests` starts `axllent/mailpit`; each test class or collection that stops a broker has its own container. The CI work added 1 API case (`RedisCacheTests.CacheDisposed_TheConnectionOfTheTrackerAndTheBackplaneStaysOpen`, see [Stable on CI](#stable-on-ci)). The deployment work added 4 API cases in `InfrastructureEndpointTests`: `OpenApiAndScalar_FollowTheOpenApiEnabledSetting` (theory, 3 cases: off by default in Production, on with `OpenApi:Enabled=true`, off in Development with `false`) and `CorsPreflight_WithAnEmptyConfiguredOrigin_StillAllowsTheConfiguredOne` (an unset `FRONTEND_EXTRA_ORIGIN` reaches the API as an empty origin and is ignored); see [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
@@ -41,6 +41,17 @@ Usernames, last-seen privacy and forgot/reset password added 151 cases (852 → 
 - **Application (66):** `UsernameTests` (34: registration with taken, freed, invalid, reserved and racing usernames, change with cooldown, `ProfileUpdated` to peers, availability including deleted and blocking users, login by username with the same hashing work for unknown names, search by exact name and prefix, usernames in the conversation list and members), `LastSeenPrivacyTests` (14: every projection for a hidden user and for a viewer who hides their own, the user's own status, blocked list, messages without presence, `PresenceChanged` and `ProfileUpdated` fan-out by both rules, toggling both ways pushing `PresenceChanged` at once, cached `GetMe` and queries after a toggle), `PasswordResetTests` (12: one hashed token and the outbox event with the frontend link, the same answer for unknown, unverified, phone-only and deleted accounts, the per-account limit, newer links invalidating older ones, reset rotating the stamp, revoking refresh tokens and disconnecting, used, expired, raced and old-address tokens), `PasswordResetTimingTests` (2: known and unknown addresses both wait the minimum response time on the fake clock), `PersistenceTests` (2: the username backfill over legacy rows, and the indexes), `OutboxPublisherTests` (1: both reset events redacted after publishing), `SeederTests` (1: `seed_0001` usernames). Existing tests now register with a username (`TestUsernames.For`), `PersistenceTests` expects 8 migrations, and `PasswordReset:MinimumResponseMilliseconds` is 0 in `AppTestBase`, so the fake clock never stalls other tests.
 - **API (18):** `UsernameTests` (5), `PrivacyTests` (6: with live hub clients, hiding and showing reach a connected peer at once, a hidden user connecting sends no presence, a viewer who hides gets no presence but still gets typing, pushed messages carry no presence), `PasswordResetTests` (4: identical 202 bodies after the minimum time, reset closing the hub connection and rejecting the old access and refresh tokens), 2 in `RateLimitingTests` (forgot-password 5 a minute, username availability 30 a minute) and 1 in `RedisCacheTests` (toggling privacy removes the profile entry from Redis, and no cache entry for the user carries presence to others).
 - **Notifications (14):** `PasswordResetEmailTests` (12, see [docs/NOTIFICATIONS.md](../docs/NOTIFICATIONS.md#password-reset)) and 2 in `EmailChannelTests` (both templates through Mailpit).
+
+Guest accounts, demo personas and ChatHub Bot added 65 cases (1003 → 1068):
+
+- **Domain (19):** `GuestAccountTests` (10: a guest has no contact or usable password and expires after its lifetime, personas keep their fixed id, guests and personas cannot change username, contact details or password, the `guest_`/`demo_`/`chathub_` prefixes are reserved for users but allowed for system accounts), `ConversationHistoryTests` (4: backdating moves the start and every join and drops the creation events, history messages are text at the given time without events and must be in order, the history read pointer moves without an event), `BotReplyTests` (5).
+- **Application (36):**
+  - `GuestTests` (20). Creation: token pair, `isGuest`/`guestExpiresAtUtc`, no `UserRegistered`, personas created once (also by two instances at once) and unable to sign in. The seeded world: three conversations with 4, 4 and 6 messages and 2, 2 and 3 unread. One save of at most 4 SQL commands with no SignalR delivery or live domain event. Restrictions: guests only reach personas and not each other. Real users cannot start chats with, add or look up guests. Search isolation both ways. No username, verification or password changes. No sign-in by username. Refresh rejected after expiry.
+  - Cleanup in `GuestTests`: only expired guests deleted, through the account deletion (one `UserDeletedEvent`, disconnect, conversations and messages gone, personas kept). A conversation with a real user kept. Uploads marked deleted. Two runners at once delete each guest exactly once. A held advisory lock skips the cycle. A guest may delete itself.
+  - `GuestCapacityTests` (1) and `GuestDisabledTests` (1).
+  - `BotTests` (15): typing at once, then the reply after the delay through the normal send path (`MessageSentEvent`, read receipt for the trigger). Keyword replies (5 rows) and rotating small talk. One pending reply per conversation; at most 6 replies a minute, then again after the window. No reply to its own messages. Two instances racing for one job send one reply; two pollers claim the job once. A reply over a minute late is dropped. Nothing is scheduled without the bot. Real users can chat with the bot too.
+  - `BotDisabledTests` (1). `PersistenceTests` now expects 10 migrations.
+- **API (10):** `GuestTests` (9: 201 with tokens and `isGuest`, the conversation list with badges, the 6th guest from one address in an hour gets 429, 404 with `Guest:Enabled=false`, `429 Guest.CapacityReached` at the cap, restrictions both ways over HTTP, "hi" to the bot showing `UserTyping` before the reply and `MessagesRead` over a live hub, a forced expiry rejecting the access and refresh tokens, then the cleanup closing the hub connection and removing the guest, personas created when an API instance starts) and 1 in `MultiInstanceTests` (both instances poll for bot jobs; the reply reaches a hub on the other host exactly once).
 
 ## What changed in the port
 
@@ -68,16 +79,19 @@ CI has to pass on the first run, not after a re-run, so the suite follows these 
 
 ## Domain invariants added beyond the harnesses
 
-`ChatHub.Domain.UnitTests` has 188 test methods that cover Domain rules the harnesses never exercised:
+`ChatHub.Domain.UnitTests` has 204 test methods that cover Domain rules the harnesses never exercised:
 
 | Class | Added test methods |
 |---|---:|
 | `AttachmentTests` | 3 |
 | `BaseEntityTests` | 2 |
+| `BotReplyTests` | 5 |
+| `ConversationHistoryTests` | 4 |
 | `ConversationMemberTests` | 25 |
 | `ConversationTests` | 46 |
 | `EmailTests` | 5 |
 | `EmailVerificationTests` | 14 |
+| `GuestAccountTests` | 7 |
 | `LastSeenPrivacyTests` | 4 |
 | `MessageTests` | 20 |
 | `PasswordResetTests` | 6 |

@@ -15,6 +15,18 @@ A real-time chat backend: direct and group conversations, messages with attachme
 - **Presence privacy**: hide your online status and last seen (`PUT /api/users/me/privacy`); like WhatsApp, whoever hides theirs cannot see anyone else's. The server applies it to every response and event.
 - **Users**: profiles with avatars, search by name, username, email or phone, blocking.
 - **Notifications worker**: digests of unread messages and transactional emails, with sending limits and suppressed domains.
+- **Guest mode**: `POST /api/auth/guest` signs anyone in with one click as "Guest 4821". The guest gets three ready-made chats with demo users, unread badges included, and is deleted with everything in it after 24 hours. See [Guest mode](#guest-mode).
+
+## Guest mode
+
+"Continue as guest" lets visitors of the public link try ChatHub without signing up.
+
+- **Demo personas.** Five fixed users exist in every environment, created at API startup (and again by the first guest sign-in if any is missing): ChatHub Bot (`chathub_bot`), Layla (`demo_layla`), Omar (`demo_omar`), Sara (`demo_sara`) and Youssef (`demo_youssef`), with English and Arabic names. They cannot sign in and are never deleted. Usernames starting with `guest_`, `demo_` or `chathub_` are reserved for them and for guests.
+- **A guest's world.** `POST /api/auth/guest` creates a user with no email, phone or password, a `guest_xxxxxxxx` username, and a normal token pair. In the same transaction it gets a chat with ChatHub Bot, a chat with Layla and the group "Weekend plans 🌴" with Omar, Sara and Youssef. The chats come with a short history (text only) and 2, 2 and 3 unread messages. `GET /api/users/me` shows `isGuest` and `guestExpiresAtUtc`.
+- **ChatHub Bot.** In any conversation it is in, the bot shows "typing…" over SignalR and answers about 1.5 s later: a greeting for "hi", tips for "help", a feature tour for "features", small talk otherwise. Replies go through the normal send path (receipts, outbox, SignalR). Each message gets at most one reply across replicas, with one pending reply and at most six replies per conversation a minute.
+- **Restrictions.** Guests can only chat with the personas and can only find them in search. Real users can never find, message or add guests. Guests cannot change their username, add an email or phone, request verification or a password reset, or sign in with a password. Such requests get `403` with the code `Guest.Restricted`.
+- **Expiry.** A background job, on one replica at a time, deletes expired guests through the normal account deletion. It also removes their conversations that contain no real user. An expired guest's access and refresh tokens stop working at once, before the cleanup runs.
+- **Limits.** `Guest:MaxActive` (500) caps live guests (`429 Guest.CapacityReached`), and one IP may create `Guest:CreatePerIpPerHour` (5) an hour. With `Guest:Enabled=false` the endpoint answers 404. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#guest-mode-in-production).
 
 ## Stack
 

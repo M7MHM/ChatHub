@@ -23,6 +23,7 @@ public class ApplicationDbContext(
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<BotReply> BotReplies => Set<BotReply>();
     public DbSet<UploadedFile> UploadedFiles => Set<UploadedFile>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 

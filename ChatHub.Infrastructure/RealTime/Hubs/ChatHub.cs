@@ -16,15 +16,17 @@ public class ChatHub(
     PresenceSynchronizer presence,
     IApplicationDbContext db,
     HybridCache cache,
-    IServiceScopeFactory scopeFactory) : Hub
+    IServiceScopeFactory scopeFactory,
+    TimeProvider timeProvider) : Hub
 {
     public override async Task OnConnectedAsync()
     {
         var userId = GetRequiredUserId();
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
 
         var isActiveUser = await db.UserProfiles
             .AsNoTracking()
-            .AnyAsync(u => u.Id == userId && !u.IsDeleted, Context.ConnectionAborted);
+            .AnyAsync(u => u.Id == userId && !u.IsDeleted && (!u.IsGuest || u.GuestExpiresAtUtc > nowUtc), Context.ConnectionAborted);
         if (!isActiveUser)
         {
             Context.Abort();

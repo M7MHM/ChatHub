@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Auth;
 using ChatHub.Application.Features.Auth.Commands;
+using ChatHub.Application.Features.Guests.Commands;
 using ChatHub.WebAPI.Extensions;
 using ChatHub.WebAPI.Pages;
 using MediatR;
@@ -20,6 +21,13 @@ public sealed class AuthController(ISender sender) : ApiController(sender)
     public async Task<ActionResult<AuthResponse>> Register(
         [FromBody] RegisterCommand command, CancellationToken cancellationToken) =>
         ToCreated(await Sender.Send(command, cancellationToken), auth => $"/api/users/{auth.User.Id}");
+
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.GuestCreate)]
+    [HttpPost("auth/guest")]
+    [ProducesResponseType<AuthResponse>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<AuthResponse>> ContinueAsGuest(CancellationToken cancellationToken) =>
+        ToCreated(await Sender.Send(new CreateGuestCommand(), cancellationToken), auth => $"/api/users/{auth.User.Id}");
 
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.AuthStrict)]

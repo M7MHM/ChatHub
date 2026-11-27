@@ -253,6 +253,28 @@ public sealed class MultiInstanceTests(MultiInstanceFixture fixture) : ApiTestBa
         return (alice, bob, await CreateDirectAsync(alice, bob.Id));
     }
 
+    [Fact]
+    public async Task BotReply_WithBothInstancesPollingForJobs_IsSentExactlyOnceAndReachesTheOtherHost()
+    {
+        var created = await NewClient().PostAsync("/api/auth/guest", null);
+        created.Status.ShouldBe(201, created.Text);
+        var guest = TestUser.From(created.Json, null);
+        var list = await Api.GetAsync("/api/conversations", guest.Token);
+        var botChat = list.Json.P("items").EnumerateArray().Single(i => i.P("otherUser").G("id") == BotId).G("id");
+        var hub = await ConnectAsync(Host2, guest);
+
+        await SendTextAsync(guest, botChat, "hi");
+
+        await hub.WaitForAsync(ChatEvents.UserTyping, p => p.G("userId") == BotId);
+        await hub.WaitForAsync(ChatEvents.MessageReceived, p => p.P("sender").G("id") == BotId);
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        hub.Events.Count(e => e.Name == ChatEvents.MessageReceived && e.Payload.P("sender").G("id") == BotId).ShouldBe(1);
+        (await QueryDbAsync(db => db.Messages.CountAsync(m => m.ConversationId == botChat && m.SenderId == BotId))).ShouldBe(5);
+        (await QueryDbAsync(db => db.BotReplies.CountAsync(r => r.ReplyMessageId != null))).ShouldBe(1);
+    }
+
+    private static Guid BotId => ChatHub.Application.Features.Guests.DemoPersonas.Bot.Id;
+
     private async Task<int> ConnectionCountAsync(Guid userId) =>
         (int)await Redis.HashLengthAsync(RedisUserConnectionTracker.UserKey(userId));
 

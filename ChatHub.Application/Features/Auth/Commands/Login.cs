@@ -51,7 +51,7 @@ public sealed class LoginCommandHandler(
 
     private async Task<UserProfile?> FindActiveUserAsync(string identifier, CancellationToken cancellationToken)
     {
-        var users = db.UserProfiles.AsNoTracking().Where(u => !u.IsDeleted);
+        var users = db.UserProfiles.AsNoTracking().Where(u => !u.IsDeleted && !u.IsGuest && !u.IsDemoPersona);
 
         if (identifier.Contains('@'))
         {

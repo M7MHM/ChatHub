@@ -29,7 +29,13 @@ public sealed class SearchUsersQueryHandler(IApplicationDbContext db, ICurrentUs
     public async Task<Result<IReadOnlyList<UserSummary>>> Handle(SearchUsersQuery request, CancellationToken cancellationToken)
     {
         var me = currentUser.GetRequiredUserId();
-        var iSharePresence = await db.SharesPresenceAsync(me, cancellationToken);
+        var viewer = await db.UserProfiles
+            .AsNoTracking()
+            .Where(u => u.Id == me && !u.IsDeleted)
+            .Select(u => new { u.ShowLastSeen, u.IsGuest })
+            .FirstOrDefaultAsync(cancellationToken);
+        var iSharePresence = viewer?.ShowLastSeen ?? false;
+        var iAmGuest = viewer?.IsGuest ?? false;
         var term = request.Query.Trim();
         var namePattern = term.ToLowerInvariant();
         var email = ContactParser.TryParseEmail(term);
@@ -40,6 +46,7 @@ public sealed class SearchUsersQueryHandler(IApplicationDbContext db, ICurrentUs
         var users = await db.UserProfiles
             .AsNoTracking()
             .Where(u => u.Id != me && !u.IsDeleted)
+            .Where(u => iAmGuest ? u.IsDemoPersona : !u.IsGuest)
             .Where(u => u.DisplayName.ToLower().Contains(namePattern) ||
                         (usernamePrefix != null && ((string)(object)u.Username).StartsWith(usernamePrefix)) ||
                         (email != null && u.Email == email) ||

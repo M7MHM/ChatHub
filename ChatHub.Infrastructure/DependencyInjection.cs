@@ -5,10 +5,15 @@ using ChatHub.Application.Common.Caching;
 using ChatHub.Application.Common.Emails;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Features.Auth;
+using ChatHub.Application.Features.Bot;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Application.Features.Users;
+using ChatHub.Infrastructure.Bot;
 using ChatHub.Infrastructure.Caching;
+using ChatHub.Infrastructure.Guests;
 using ChatHub.Infrastructure.Identity;
 using ChatHub.Infrastructure.Messaging;
+using ChatHub.Infrastructure.Persistence;
 using ChatHub.Infrastructure.Persistence.Data;
 using ChatHub.Infrastructure.RealTime;
 using ChatHub.Infrastructure.Storage;
@@ -44,6 +49,7 @@ public static class DependencyInjection
         services.AddAccountEmails(configuration);
         services.AddFileStorage(configuration);
         services.AddRealTime(configuration, redis);
+        services.AddGuestsAndBot(configuration);
         if (messaging) services.AddMessaging(configuration);
 
         return services;
@@ -72,6 +78,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("Connection string 'DefaultConnection' was not found.");
 
         services.AddScoped<CacheInvalidationInterceptor>();
+        services.AddSingleton<IDistributedLock>(new PostgresAdvisoryLock(connectionString));
         if (outbox) services.AddScoped<OutboxInterceptor>();
         services.AddDbContext<ApplicationDbContext>((sp, options) =>
         {
@@ -229,6 +236,32 @@ public static class DependencyInjection
             var urls = sp.GetRequiredService<IOptions<AppUrlSettings>>().Value;
             return new EmailLinks(urls.PublicApiBaseUrl, urls.FrontendBaseUrl);
         });
+    }
+
+    private static void AddGuestsAndBot(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<GuestSettings>()
+            .Bind(configuration.GetSection(GuestSettings.SectionName))
+            .Validate(s => s.LifetimeHours is > 0 and <= 168, "Guest LifetimeHours must be between 1 and 168.")
+            .Validate(s => s.MaxActive is > 0 and <= 100_000, "Guest MaxActive must be between 1 and 100000.")
+            .Validate(s => s.CreatePerIpPerHour is > 0 and <= 10_000, "Guest CreatePerIpPerHour must be between 1 and 10000.")
+            .Validate(s => s.CleanupIntervalMinutes is > 0 and <= 1440, "Guest CleanupIntervalMinutes must be between 1 and 1440.")
+            .ValidateOnStart();
+
+        services.AddOptions<BotSettings>()
+            .Bind(configuration.GetSection(BotSettings.SectionName))
+            .Validate(s => s.ReplyDelayMilliseconds is >= 0 and <= 10_000, "Bot ReplyDelayMilliseconds must be between 0 and 10000.")
+            .Validate(s => s.MaxRepliesPerConversationPerMinute is > 0 and <= 120,
+                "Bot MaxRepliesPerConversationPerMinute must be between 1 and 120.")
+            .Validate(s => s.PollIntervalMilliseconds is >= 50 and <= 60_000, "Bot PollIntervalMilliseconds must be between 50 and 60000.")
+            .ValidateOnStart();
+
+        services.AddHostedService<DemoPersonaInitializer>();
+        services.AddSingleton<GuestCleanupService>();
+        services.AddHostedService(sp => sp.GetRequiredService<GuestCleanupService>());
+        services.AddSingleton<BotReplyService>();
+        services.AddSingleton<IBotReplyWaker>(sp => sp.GetRequiredService<BotReplyService>());
+        services.AddHostedService(sp => sp.GetRequiredService<BotReplyService>());
     }
 
     private static void AddFileStorage(this IServiceCollection services, IConfiguration configuration)

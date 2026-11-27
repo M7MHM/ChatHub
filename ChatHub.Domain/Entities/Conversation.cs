@@ -177,6 +177,41 @@ public class Conversation : BaseAuditableEntity
         return message;
     }
 
+    public void BackdateHistory(DateTime startedAtUtc)
+    {
+        if (LastMessageId is not null)
+            throw new DomainRuleViolationException("A conversation can only be backdated before its first message.");
+
+        CreatedAtUtc = startedAtUtc;
+        foreach (var member in Members)
+        {
+            member.BackdateJoin(startedAtUtc);
+            member.ClearDomainEvents();
+        }
+
+        ClearDomainEvents();
+    }
+
+    public Message AddHistoryMessage(Guid senderId, string content, DateTime sentAtUtc)
+    {
+        if (FindActiveMember(senderId) is null)
+            throw new DomainRuleViolationException("Only active members can send messages.");
+        if (sentAtUtc < CreatedAtUtc || (LastMessageAtUtc is { } last && sentAtUtc < last))
+            throw new DomainRuleViolationException("History messages must be added in order, after the conversation started.");
+
+        var message = Message.CreateHistory(Id, senderId, content, sentAtUtc);
+        LastMessageId = message.Id;
+        LastMessageAtUtc = sentAtUtc;
+        return message;
+    }
+
+    public void MarkHistoryRead(Guid userId, Message message)
+    {
+        var member = FindActiveMember(userId)
+                     ?? throw new DomainRuleViolationException("Only active members can read messages.");
+        member.SetHistoryReadPointer(message);
+    }
+
     public ConversationMember? FindMember(Guid userId) => Members.FirstOrDefault(m => m.UserId == userId);
 
     public ConversationMember? FindActiveMember(Guid userId) =>

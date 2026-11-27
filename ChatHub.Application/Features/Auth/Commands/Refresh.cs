@@ -36,11 +36,13 @@ public sealed class RefreshCommandHandler(
             return AuthErrors.TokenReused;
         }
 
-        if (!token.IsActive(timeProvider.GetUtcNow().UtcDateTime))
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        if (!token.IsActive(nowUtc))
             return AuthErrors.InvalidRefreshToken;
 
         var user = await db.UserProfiles.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == token.UserId && !u.IsDeleted, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Id == token.UserId && !u.IsDeleted &&
+                                      (!u.IsGuest || u.GuestExpiresAtUtc > nowUtc), cancellationToken);
         if (user is null)
         {
             token.Revoke();

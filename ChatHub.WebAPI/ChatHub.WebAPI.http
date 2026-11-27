@@ -103,6 +103,33 @@ Content-Type: application/json
   "password": "secret123"
 }
 
+### ───────────── Guest mode (5 / hour per IP; Guest:MaxActive live guests at once) ─────────────
+# One click, no body. 201 with the normal token pair; user.username is "guest_xxxxxxxx", user.displayName "Guest 4821".
+# The guest gets three chats with demo users (ChatHub Bot, Layla, the group "Weekend plans 🌴") with 2, 2 and 3 unread
+# messages, and is deleted with everything in it after Guest:LifetimeHours (24). GET /api/users/me shows
+# "isGuest": true and "guestExpiresAtUtc". 404 Guest.Disabled when guest mode is off, 429 Guest.CapacityReached when
+# full, 429 from the rate limiter after 5 an hour. Guests only reach the demo users; everything else that involves real
+# users, usernames, email, phone or passwords answers 403 Guest.Restricted.
+# @name guest
+POST {{baseUrl}}/api/auth/guest
+
+###
+GET {{baseUrl}}/api/conversations
+Authorization: Bearer {{guest.response.body.$.accessToken}}
+
+###
+# Write to ChatHub Bot: open the chat whose otherUser.username is "chathub_bot" and post a message. Over SignalR the
+# bot sends UserTyping { conversationId, userId: <bot> } at once and MessageReceived with its reply about 1.5 s later
+# ("hi" -> greeting, "help" -> tips, "features" -> tour, anything else -> small talk), then MessagesRead for your message.
+POST {{baseUrl}}/api/conversations/paste-the-bot-conversation-id/messages
+Authorization: Bearer {{guest.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "type": "Text",
+  "content": "hi"
+}
+
 ###
 # @name refresh
 POST {{baseUrl}}/api/auth/refresh

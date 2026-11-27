@@ -111,6 +111,23 @@ public class ConversationMember : BaseAuditableEntity
         AddDomainEvent(new MessageReadEvent(ConversationId, UserId, message.Id, DateTime.UtcNow, message.CreatedAtUtc));
     }
 
+    internal void BackdateJoin(DateTime joinedAtUtc)
+    {
+        JoinedAtUtc = joinedAtUtc;
+        CreatedAtUtc = joinedAtUtc;
+    }
+
+    internal void SetHistoryReadPointer(Message message)
+    {
+        ValidateMessage(message);
+        if (IsOwnMessage(message)) return;
+
+        LastDeliveredMessageId = message.Id;
+        LastDeliveredMessageAtUtc = message.CreatedAtUtc;
+        LastReadMessageId = message.Id;
+        LastReadMessageAtUtc = message.CreatedAtUtc;
+    }
+
     private void AdvanceDelivered(Message message)
     {
         if (LastDeliveredMessageAtUtc is { } current && message.CreatedAtUtc <= current) return;

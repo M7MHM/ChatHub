@@ -89,6 +89,26 @@ public class Message : BaseAuditableEntity
         if (IsDeleted) throw new DomainRuleViolationException("Message is deleted.");
     }
 
+    internal static Message CreateHistory(Guid conversationId, Guid senderId, string content, DateTime sentAtUtc)
+    {
+        if (conversationId == Guid.Empty || senderId == Guid.Empty)
+            throw new DomainRuleViolationException("Conversation and sender ids are required.");
+
+        var normalized = string.IsNullOrWhiteSpace(content) ? null : content.Trim();
+        ValidatePayload(MessageType.Text, normalized, null);
+
+        var message = new Message
+        {
+            ConversationId = conversationId,
+            SenderId = senderId,
+            Type = MessageType.Text,
+            Content = normalized
+        };
+        message.CreatedAtUtc = sentAtUtc;
+        message.CreatedById = senderId;
+        return message;
+    }
+
     private static void ValidatePayload(MessageType type, string? content, Attachment? attachment)
     {
         if (content is { Length: > MaxContentLength })

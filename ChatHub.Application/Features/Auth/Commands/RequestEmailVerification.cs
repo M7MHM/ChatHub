@@ -1,6 +1,7 @@
 using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Application.Features.Users;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,7 @@ public sealed class RequestEmailVerificationCommandHandler(
         var userId = currentUser.GetRequiredUserId();
         var user = await db.UserProfiles.FirstOrDefaultAsync(u => u.Id == userId && !u.IsDeleted, cancellationToken);
         if (user is null) return UserErrors.NotFound;
+        if (user.IsGuest || user.IsDemoPersona) return GuestErrors.AccountRestricted;
         if (user.Email is null) return AuthErrors.NoEmailToVerify;
         if (user.IsEmailVerified) return AuthErrors.EmailAlreadyVerified;
 

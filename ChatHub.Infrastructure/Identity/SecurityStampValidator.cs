@@ -30,15 +30,16 @@ internal static class SecurityStampValidator
                 return await db.UserProfiles
                     .AsNoTracking()
                     .Where(u => u.Id == state.userId)
-                    .Select(u => new UserStamp(u.IsDeleted, u.SecurityStamp))
+                    .Select(u => new UserStamp(u.IsDeleted, u.SecurityStamp, u.GuestExpiresAtUtc))
                     .FirstOrDefaultAsync(token);
             },
             CacheKeys.SecurityStampEntryOptions,
             cancellationToken: context.HttpContext.RequestAborted);
 
-        if (user is null || user.IsDeleted || user.SecurityStamp != stamp.Value)
+        var nowUtc = services.GetRequiredService<TimeProvider>().GetUtcNow().UtcDateTime;
+        if (user is null || user.IsDeleted || user.SecurityStamp != stamp.Value || user.GuestExpiresAtUtc <= nowUtc)
             context.Fail("The access token is no longer valid.");
     }
 
-    internal sealed record UserStamp(bool IsDeleted, Guid SecurityStamp);
+    internal sealed record UserStamp(bool IsDeleted, Guid SecurityStamp, DateTime? GuestExpiresAtUtc = null);
 }

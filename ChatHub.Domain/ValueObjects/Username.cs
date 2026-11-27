@@ -23,6 +23,8 @@ public sealed class Username : ValueObject
         "settings", "www", "mail", "noreply", "postmaster", "abuse", "webmaster"
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    public static readonly IReadOnlyList<string> ReservedPrefixes = ["guest_", "demo_", "chathub_"];
+
     private Username(string value) => Value = value;
 
     public string Value { get; }
@@ -40,7 +42,7 @@ public sealed class Username : ValueObject
             return false;
         }
 
-        if (ReservedNames.Contains(normalized))
+        if (IsReservedNormalized(normalized))
         {
             error = ReservedMessage;
             return false;
@@ -51,6 +53,13 @@ public sealed class Username : ValueObject
         return true;
     }
 
+    public static Username ForSystemAccount(string username)
+    {
+        var normalized = Normalize(username);
+        if (!IsWellFormed(normalized)) throw new DomainRuleViolationException(RulesMessage);
+        return new Username(normalized);
+    }
+
     public static Username FromStorage(string stored)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stored);
@@ -59,7 +68,10 @@ public sealed class Username : ValueObject
 
     public static string Normalize(string? username) => (username ?? string.Empty).Trim().ToLowerInvariant();
 
-    public static bool IsReserved(string? username) => ReservedNames.Contains(Normalize(username));
+    public static bool IsReserved(string? username) => IsReservedNormalized(Normalize(username));
+
+    private static bool IsReservedNormalized(string normalized) =>
+        ReservedNames.Contains(normalized) || ReservedPrefixes.Any(p => normalized.StartsWith(p, StringComparison.Ordinal));
 
     public static bool IsWellFormed(string normalized)
     {

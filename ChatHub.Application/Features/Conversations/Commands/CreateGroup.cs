@@ -2,6 +2,7 @@ using ChatHub.Application.Common.Extensions;
 using ChatHub.Application.Common.Interfaces;
 using ChatHub.Application.Common.Models;
 using ChatHub.Application.Features.Files;
+using ChatHub.Application.Features.Guests;
 using ChatHub.Domain.Entities;
 using ChatHub.Domain.Enums;
 using FluentValidation;
@@ -48,6 +49,7 @@ public sealed class CreateGroupCommandHandler(
                     (b.BlockerId == me && b.BlockedId == u.Id) || (b.BlockerId == u.Id && b.BlockedId == me)))
                 .Select(u => u.Id)
                 .ToListAsync(cancellationToken);
+        if (await db.CheckContactsAsync(me, memberIds, cancellationToken) is { } restricted) return restricted;
 
         string? imageUrl = null;
         if (request.ImageFileId is { } fileId)

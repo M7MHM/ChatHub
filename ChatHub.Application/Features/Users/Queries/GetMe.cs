@@ -48,6 +48,8 @@ public sealed class GetMeQueryHandler(
                         u.LastSeenUtc,
                         u.ShowLastSeen,
                         u.UsernameChangedAtUtc,
+                        u.IsGuest,
+                        u.GuestExpiresAtUtc,
                         u.CreatedAtUtc
                     })
                     .FirstOrDefaultAsync(token);
@@ -68,6 +70,8 @@ public sealed class GetMeQueryHandler(
                         row.LastSeenUtc,
                         row.ShowLastSeen,
                         row.UsernameChangedAtUtc + state.cooldown,
+                        row.IsGuest,
+                        row.GuestExpiresAtUtc,
                         row.CreatedAtUtc);
             },
             CacheKeys.UserProfileEntryOptions,
@@ -92,4 +96,6 @@ public sealed record MeResponse(
     DateTime? LastSeenUtc,
     bool ShowLastSeen,
     DateTime? UsernameChangeAvailableAtUtc,
+    bool IsGuest,
+    DateTime? GuestExpiresAtUtc,
     DateTime CreatedAtUtc);
