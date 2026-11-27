@@ -1,0 +1,61 @@
+{
+  "common": {
+    "appName": "ChatHub"
+  },
+  "theme": {
+    "toggle": "Toggle theme"
+  },
+  "language": {
+    "switch": "العربية"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "continueAsGuest": "Continue as guest",
+    "identifier": {
+      "label": "Email, phone or username",
+      "placeholder": "you@example.com",
+      "hint": "For example <ltr>{username}</ltr> or <ltr>{phone}</ltr>"
+    }
+  },
+  "settings": {
+    "presence": {
+      "label": "Show online & last seen",
+      "sub": "Hiding yours also hides others' from you"
+    },
+    "digests": {
+      "label": "Email digests",
+      "sub": "A short email when you miss messages"
+    }
+  },
+  "chat": {
+    "today": "Today",
+    "search": "Search",
+    "send": "Send",
+    "status": {
+      "sent": "Sent",
+      "delivered": "Delivered",
+      "read": "Read"
+    }
+  },
+  "preview": {
+    "subtitle": "Style preview (temporary)",
+    "sections": {
+      "buttons": "Buttons",
+      "input": "Input",
+      "settings": "Settings card",
+      "chat": "Chat"
+    },
+    "variants": {
+      "default": "Default",
+      "ghost": "Ghost",
+      "outline": "Outline",
+      "destructive": "Destructive"
+    },
+    "messages": {
+      "m1": "Hey! Is the new build on staging yet?",
+      "m2": "The chat list feels a lot faster.",
+      "m3": "Yes, it went out an hour ago.",
+      "m4": "Try the theme button at the top. Dark is the default now."
+    }
+  }
+}

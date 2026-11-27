@@ -9,6 +9,8 @@ import {
   SendHorizontal,
   type LucideIcon,
 } from "lucide-react";
+import { getLocale, getTranslations } from "next-intl/server";
+import { LanguageToggle } from "@/components/language-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -26,12 +28,14 @@ function Bubble({
   last = false,
   time,
   status,
+  statusLabel,
   children,
 }: {
   out?: boolean;
   last?: boolean;
   time: string;
   status?: Status;
+  statusLabel?: string;
   children: ReactNode;
 }) {
   const Tick = status === "sent" ? Check : CheckCheck;
@@ -53,10 +57,10 @@ function Bubble({
           out ? "text-tick" : "text-muted-foreground",
         )}
       >
-        {time}
+        <bdi dir="ltr">{time}</bdi>
         {out && status && (
           <Tick
-            aria-label={status}
+            aria-label={statusLabel}
             className={cn("size-4", status === "read" ? "text-tick-read" : "text-tick")}
           />
         )}
@@ -92,44 +96,59 @@ function SettingRow({
   );
 }
 
-export default function StylePreviewPage() {
+export default async function StylePreviewPage() {
+  const locale = await getLocale();
+  const t = await getTranslations();
+  const timeFormat = new Intl.DateTimeFormat(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    numberingSystem: "latn",
+  });
+  const at = (hour: number, minute: number) =>
+    timeFormat.format(new Date(2026, 10, 27, hour, minute));
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-10 px-4 py-8 md:px-6">
       <header className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold tracking-[-0.02em] rtl:tracking-normal">ChatHub</h1>
-          <p className="text-[13px] text-muted-foreground">Style preview (temporary)</p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-[-0.02em] rtl:tracking-normal">
+            {t("common.appName")}
+          </h1>
+          <p className="text-[13px] text-muted-foreground">{t("preview.subtitle")}</p>
         </div>
-        <ThemeToggle />
+        <div className="flex shrink-0 items-center gap-1">
+          <LanguageToggle />
+          <ThemeToggle />
+        </div>
       </header>
 
       <section className="flex flex-col gap-3">
-        <h2 className={sectionTitle}>Buttons</h2>
+        <h2 className={sectionTitle}>{t("preview.sections.buttons")}</h2>
         <div className="flex flex-wrap items-center gap-3">
-          <Button>Default</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="outline">Outline</Button>
-          <Button variant="destructive">Destructive</Button>
+          <Button>{t("preview.variants.default")}</Button>
+          <Button variant="ghost">{t("preview.variants.ghost")}</Button>
+          <Button variant="outline">{t("preview.variants.outline")}</Button>
+          <Button variant="destructive">{t("preview.variants.destructive")}</Button>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button size="lg">Sign in</Button>
+          <Button size="lg">{t("auth.signIn")}</Button>
           <Button size="lg" variant="outline">
-            Continue as guest
+            {t("auth.continueAsGuest")}
           </Button>
-          <Button size="icon" variant="ghost" aria-label="Search">
+          <Button size="icon" variant="ghost" aria-label={t("chat.search")}>
             <Search />
           </Button>
-          <Button size="round" aria-label="Send">
+          <Button size="round" aria-label={t("chat.send")}>
             <SendHorizontal className="rtl:-scale-x-100" />
           </Button>
         </div>
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className={sectionTitle}>Input</h2>
+        <h2 className={sectionTitle}>{t("preview.sections.input")}</h2>
         <div className="flex max-w-sm flex-col gap-2">
           <label htmlFor="identifier" className="text-[13px] font-semibold">
-            Email, phone or username
+            {t("auth.identifier.label")}
           </label>
           <div className="relative">
             <AtSign
@@ -139,49 +158,55 @@ export default function StylePreviewPage() {
             <Input
               id="identifier"
               autoComplete="username"
-              placeholder="you@example.com"
+              placeholder={t("auth.identifier.placeholder")}
               className="h-[52px] rounded-xl border-input bg-field ps-[46px] pe-4 focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-brand-soft md:text-[15px] dark:bg-field"
             />
           </div>
-          <p className="text-[13px] text-muted-foreground">Hints and errors sit here in 13px.</p>
+          <p className="text-[13px] text-muted-foreground">
+            {t.rich("auth.identifier.hint", {
+              username: "@m7moud",
+              phone: "+20 100 123 4567",
+              ltr: (chunks) => <bdi dir="ltr">{chunks}</bdi>,
+            })}
+          </p>
         </div>
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className={sectionTitle}>Settings card</h2>
+        <h2 className={sectionTitle}>{t("preview.sections.settings")}</h2>
         <Card className="gap-0 divide-y rounded-3xl border py-0 ring-0">
           <SettingRow
             id="presence"
             icon={Eye}
-            label="Show online & last seen"
-            sub="Hiding yours also hides others' from you"
+            label={t("settings.presence.label")}
+            sub={t("settings.presence.sub")}
             defaultChecked
           />
           <SettingRow
             id="digests"
             icon={Mail}
-            label="Email digests"
-            sub="A short email when you miss messages"
+            label={t("settings.digests.label")}
+            sub={t("settings.digests.sub")}
           />
         </Card>
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className={sectionTitle}>Chat</h2>
+        <h2 className={sectionTitle}>{t("preview.sections.chat")}</h2>
         <div className="overflow-hidden rounded-3xl border">
           <div className="flex flex-col gap-1 bg-panel bg-chat px-[clamp(16px,5vw,64px)] pt-6 pb-4">
             <span className="mb-3 self-center rounded-full bg-header px-3.5 py-1.5 text-xs text-muted-foreground shadow-elev">
-              Today
+              {t("chat.today")}
             </span>
-            <Bubble time="10:41">Hey! Is the new build on staging yet?</Bubble>
-            <Bubble time="10:42" last>
-              The chat list feels a lot faster.
+            <Bubble time={at(10, 41)}>{t("preview.messages.m1")}</Bubble>
+            <Bubble time={at(10, 42)} last>
+              {t("preview.messages.m2")}
             </Bubble>
-            <Bubble out time="10:44" status="delivered">
-              Yes, it went out an hour ago.
+            <Bubble out time={at(10, 44)} status="delivered" statusLabel={t("chat.status.delivered")}>
+              {t("preview.messages.m3")}
             </Bubble>
-            <Bubble out last time="10:45" status="read">
-              Try the theme button at the top. Dark is the default now.
+            <Bubble out last time={at(10, 45)} status="read" statusLabel={t("chat.status.read")}>
+              {t("preview.messages.m4")}
             </Bubble>
           </div>
         </div>
